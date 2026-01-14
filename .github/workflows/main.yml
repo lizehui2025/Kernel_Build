@@ -606,7 +606,7 @@ jobs:
           cd common
           if [ "${{ env.ENABLE_HYMO }}" = "true" ]; then
             echo "添加Hymo-高性能混合挂载元模块"
-            wget https://raw.githubusercontent.com/Anatdx/HymoFS/refs/heads/android15_6.6/patch/hymofs.patch
+            wget https://raw.githubusercontent.com/lizehui2025/HymoFS/refs/heads/android15_6.6/patch/hymofs_with_susfs.patch
             patch -p1 -F 3 < hymofs.patch
             echo "CONFIG_HYMOFS=y" >> ./arch/arm64/configs/gki_defconfig
           fi
