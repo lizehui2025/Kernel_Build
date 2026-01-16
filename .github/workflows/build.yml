@@ -130,6 +130,27 @@ jobs:
     outputs:
       ksuver: ${{ steps.ksu_version.outputs.ksuver }}
     steps:
+      - name: Check for conflicting modules (SUSFS & HYMO)
+        shell: bash
+        run: |
+          echo "Checking input conflicts..."
+          
+          # 获取输入值
+          SUSFS="${{ github.event.inputs.susfs_enable }}"
+          HYMO="${{ github.event.inputs.enable_hymo }}"
+          
+          echo "SUSFS: $SUSFS"
+          echo "HYMO: $HYMO"
+          
+          # 逻辑判断：如果两个都是 true
+          if [[ "$SUSFS" == "true" && "$HYMO" == "true" ]]; then
+            echo "::error::Configuration Error: You cannot enable both SUSFS and HYMO at the same time!"
+            exit 1
+          fi
+          
+          echo "Configuration check passed."
+      
+      
       - name: Set REPO_MANIFEST (设置对应机型配置文件)
         run: |
           case "${{ env.DEVICES_NAME }}" in
