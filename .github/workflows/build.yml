@@ -668,10 +668,6 @@ jobs:
             echo "CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY=n" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_SLUB_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_LOCK_DEBUGGING_SUPPORT=n" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_DEBUG_INFO=n" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_DEBUG_KERNEL=n=n" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY=n" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_SLUB_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
@@ -877,7 +873,7 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
 
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -fslp-vectorize -fno-math-errno -funroll-loops -fno-semantic-interposition" KCFLAGS+=-Wno-error Image
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2" KCFLAGS+=-Wno-error Image
           
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
