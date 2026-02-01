@@ -875,13 +875,10 @@ jobs:
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
-          # 1. 定义 SM8750 专属优化参数 (基于 ARMv8.7-a + LSE + Cortex-X2 Tuning)
-           # 包含：架构指定、LSE原子操作、循环展开、NEON向量化、函数对齐
-          export SM8750_CFLAGS="-O2 -march=armv8.7-a+crypto+crc+lse+rcpc -mtune=cortex-x2 -funroll-loops -fno-math-errno -ftree-vectorize -fslp-vectorize -falign-functions=32 -falign-loops=32 -fno-plt -Wno-error"
 
-          # 3. 执行编译工作流
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS="${SM8750_CFLAGS}" gki_defconfig && \
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS="${SM8750_CFLAGS}" Image
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
+          
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- 编译后环境文件时间戳: ---"
