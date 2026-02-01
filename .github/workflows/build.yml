@@ -1,11 +1,8 @@
 name: 加速版构建 6.6.89 欧加真OKI内核
-
 env:
   TZ: Asia/Shanghai
   ANDROID_VERSION: 'android15'
   KERNEL_VERSION: '6.6'
-  KERNEL_NAME: 'android15-8-g29d86c5fc9dd-abogki428889875-4k'
-
 on:
   workflow_dispatch:
     inputs:
@@ -149,8 +146,6 @@ jobs:
           fi
           
           echo "Configuration check passed."
-      
-      
       - name: Set REPO_MANIFEST (设置对应机型配置文件)
         run: |
           case "${{ env.DEVICES_NAME }}" in
@@ -666,6 +661,18 @@ jobs:
             sed -i 's/^CONFIG_LTO_CLANG_FULL=y/CONFIG_LTO_CLANG_THIN=y/' "$DEFCONFIG"
             sed -i 's/^CONFIG_LTO_CLANG_NONE=y/CONFIG_LTO_CLANG_THIN=y/' "$DEFCONFIG"
             grep -q '^CONFIG_LTO_CLANG_THIN=y' "$DEFCONFIG" || echo 'CONFIG_LTO_CLANG_THIN=y' >> "$DEFCONFIG"
+
+            echo "CONFIG_KASAN=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KASAN_HW_TAGS=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KASAN_VMALLOC=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_SLUB_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_LOCK_DEBUGGING_SUPPORT=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_DEBUG_INFO=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_DEBUG_KERNEL=n=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_SLUB_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
+            
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
         run: |
@@ -868,9 +875,16 @@ jobs:
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error  gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error  Image
-          
+          # 1. 定义 SM8750 专属优化参数 (基于 ARMv8.7-a + LSE + Cortex-X2 Tuning)
+           # 包含：架构指定、LSE原子操作、循环展开、NEON向量化、函数对齐
+          export SM8750_CFLAGS="-O2 -march=armv8.7-a+crypto+crc+lse+rcpc -mtune=cortex-x2 -funroll-loops -fno-math-errno -ftree-vectorize -fslp-vectorize -falign-functions=32 -falign-loops=32 -fno-plt -Wno-error"
+
+           # 2. 定义链接器优化参数 (ICF + O2)
+          export SM8750_LDFLAGS="--icf=all -O2"
+
+          # 3. 执行编译工作流
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS="${SM8750_CFLAGS}" KBUILD_LDFLAGS="${SM8750_LDFLAGS}" gki_defconfig && \
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS="${SM8750_CFLAGS}" KBUILD_LDFLAGS="${SM8750_LDFLAGS}" Image
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- 编译后环境文件时间戳: ---"
@@ -886,7 +900,7 @@ jobs:
           if [[ ${{ github.event.inputs.kpm_enable }} == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
             echo "正在应用KPM并修补内核..."
             cd kernel_workspace/common/out/arch/arm64/boot
-            curl -LO https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.2/patch_linux
+            curl -LO https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux
             chmod +x patch_linux
             ./patch_linux
             rm -f Image
@@ -998,7 +1012,7 @@ jobs:
           body: |
             ### 📱 欧加真 ${{ env.KSU_TYPENAME }} SM8750 通用内核 | 构建信息
             - 内核版本号: ${{ env.FULL_VERSION }}
-            - 编译时间: ${{ env.KERNEL_TIME }}
+            - 编译时间: ${{ env.TIME_FORM }}
             - 机型：欧加真骁龙8Elite通用 6.6.89 内核（基于一加13国际版 6.6.89 版官方OKI源码）
             - 特性：${{ env.KSU_TYPENAME }} + 风驰内核
             - susfs支持：${{ github.event.inputs.susfs_enable }}
