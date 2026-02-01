@@ -21,7 +21,7 @@ on:
           - 'realme_GT7pro'
           - 'realme_GT7pro_Speed'
           - 'realme_GT8'
-        default: 'oneplus_ace5_pro'
+        default: 'oneplus_13'
 
       keep_original_settings:
         description: "保持原内核名称及构建时间(不懂请保持默认)"
@@ -43,7 +43,7 @@ on:
         description: 'KernelSU分支(SukiSU Ultra/ReSukiSU/KernelSU Next/MKSU/KSU(原版)/无内置KSU,默认SukiSU Ultra)'
         required: true
         type: choice
-        default: 'sukisu'
+        default: 'none'
         options:
           - 'sukisu'
           - 'resukisu'
@@ -55,7 +55,7 @@ on:
         description: '是否开启susfs(用于增强隐藏环境挂载功能; 可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭,该选项与HymoFS冲突)'
         required: true
         type: boolean
-        default: 'true'
+        default: 'false'
       kpm_enable:
         description: '是否开启kpm(builtin-使用(re)sukisu内置kpm, kpn-使用独立kpm实现(支持任意KSU/面具环境); 不需要可保持默认关闭)'
         required: true
@@ -88,7 +88,7 @@ on:
         description: '是否开启网络功能拓展配置(用于为ipset及需要iptables等高级网络功能内核支持的程序提供支持)'
         required: true
         type: boolean
-        default: 'false'
+        default: 'true'
       adios_enable:
         description: '是否启用ADIOS IO调度器支持(提升IO读写性能)'
         required: true
