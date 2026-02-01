@@ -666,7 +666,6 @@ jobs:
             echo "CONFIG_KASAN_HW_TAGS=n" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KASAN_VMALLOC=n" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY=n" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_SLUB_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_LOCK_DEBUGGING_SUPPORT=n" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_ARM64_LSE_ATOMICS=y" >> ./common/arch/arm64/configs/gki_defconfig
             
