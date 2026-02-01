@@ -662,11 +662,7 @@ jobs:
             sed -i 's/^CONFIG_LTO_CLANG_NONE=y/CONFIG_LTO_CLANG_THIN=y/' "$DEFCONFIG"
             grep -q '^CONFIG_LTO_CLANG_THIN=y' "$DEFCONFIG" || echo 'CONFIG_LTO_CLANG_THIN=y' >> "$DEFCONFIG"
 
-            echo "CONFIG_KASAN=n" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_KASAN_HW_TAGS=n" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_KASAN_VMALLOC=n" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY=n" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_LOCK_DEBUGGING_SUPPORT=n" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_ARM64_LSE_ATOMICS=y" >> ./common/arch/arm64/configs/gki_defconfig
             
       - name: 启用网络功能增强优化配置
