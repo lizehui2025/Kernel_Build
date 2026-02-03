@@ -934,6 +934,26 @@ jobs:
           name: ccache-debug-log
           path: ${{ github.workspace }}/kernel_workspace/ccache.log
 
+# 在 "克隆 AnyKernel3 并打包" 之后，"上传 ZIP 工件" 之前添加
+      - name: 压缩并上传 vmlinux (PGO转换专用)
+        run: |
+          cd kernel_workspace/common/out
+          if [ -f vmlinux ]; then
+            echo "正在压缩 vmlinux..."
+            # 使用 zstd 快速压缩，vmlinux 通常有 500MB+，压缩后约 100MB
+            zstd -T0 -3 vmlinux -o vmlinux.zst
+          else
+            echo "::error::未找到 vmlinux 文件！"
+            exit 1
+          fi
+          
+      - name: 上传 vmlinux 工件
+        uses: actions/upload-artifact@v4
+        with:
+          name: vmlinux-${{ env.KERNEL_VERSION }}-${{ env.TIME }}
+          path: kernel_workspace/common/out/vmlinux.zst 
+      
+      
       - name: 上传 ZIP 工件
         uses: actions/upload-artifact@v4
         with:
