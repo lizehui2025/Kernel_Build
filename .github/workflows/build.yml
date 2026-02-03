@@ -114,6 +114,10 @@ on:
         required: true
         default: 'false'
         type: boolean
+      pgo_profile_url:
+        description: 'PGO配置文件(.afdo)直链地址 (留空则不开启PGO; 请勿使用perf.data)'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -311,6 +315,32 @@ jobs:
           if [ "${{ steps.ccache-restore.outputs.cache-hit }}" == 'true' ]; then
             echo "ccache缓存命中详情:"
             ccache -sv
+          fi
+
+      - name: 准备 PGO (AutoFDO) 环境
+        if: github.event.inputs.pgo_profile_url != ''
+        run: |
+          echo "正在下载 PGO 配置文件..."
+          # 下载文件并重命名为 kernel.afdo
+          wget -q --show-progress "${{ github.event.inputs.pgo_profile_url }}" -O kernel.afdo
+          
+          # 检查文件是否有效
+          if [ -s "kernel.afdo" ]; then
+            echo "PGO 配置文件下载成功 (大小: $(du -h kernel.afdo | cut -f1))"
+            
+            # 获取当前工作目录
+            PWD=$(pwd)
+            
+            # 设置 PGO 相关的编译参数
+            # -fprofile-sample-use: 指定 afdo 文件路径
+            # -fprofile-sample-accurate: (可选) 更加严格的 PGO，未命中的函数视为冷代码
+            echo "KCFLAGS_PGO=-fprofile-sample-use=$PWD/kernel.afdo" >> $GITHUB_ENV
+            
+            # 配合 ThinLTO 能发挥最大效能
+            echo "启用 PGO 优化..."
+          else
+            echo "::error::PGO 配置文件下载失败或文件为空！"
+            exit 1
           fi
 
       - name: 添加KernelSU
@@ -867,9 +897,15 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
 
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -falign-functions=32 -fno-semantic-interposition -fmerge-all-constants" KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -falign-functions=32 -fno-semantic-interposition -fmerge-all-constants" KCFLAGS+=-Wno-error Image
-          
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
+            KCFLAGS="-O2 -falign-functions=32 -fno-semantic-interposition -fmerge-all-constants ${{ env.KCFLAGS_PGO }}" \
+            KCFLAGS+=-Wno-error gki_defconfig &&
+            
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
+            KCFLAGS="-O2 -falign-functions=32 -fno-semantic-interposition -fmerge-all-constants ${{ env.KCFLAGS_PGO }}" \
+            KCFLAGS+=-Wno-error Image
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- 编译后环境文件时间戳: ---"
