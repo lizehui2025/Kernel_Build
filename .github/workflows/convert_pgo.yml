@@ -1,0 +1,86 @@
+name: PGO Profile 转换工具 (perf2afdo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      perf_data_url:
+        description: 'perf.data 直链地址 (从手机 simpleperf 获取)'
+        required: true
+      vmlinux_url:
+        description: 'vmlinux.zst 直链地址 (必须与 perf.data 对应的内核版本一致)'
+        required: true
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 初始化环境 & 安装依赖
+        run: |
+          sudo apt-get update
+          # 安装编译 AutoFDO 所需的依赖
+          sudo apt-get install -y libssl-dev libelf-dev libprotobuf-dev protobuf-compiler zstd
+
+      - name: 编译 AutoFDO 工具 (create_llvm_prof)
+        run: |
+          echo "正在克隆 AutoFDO 源码..."
+          git clone --depth=1 https://github.com/google/autofdo.git
+          
+          echo "开始编译 create_llvm_prof..."
+          cd autofdo
+          mkdir build && cd build
+          cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=. ..
+          # 仅编译我们需要的一个二进制文件，节省时间
+          make -j$(nproc) create_llvm_prof
+          
+          # 输出工具路径供后续使用
+          echo "TOOL_PATH=$(pwd)/create_llvm_prof" >> $GITHUB_ENV
+          
+      - name: 下载并解压资源文件
+        run: |
+          mkdir pgo_work
+          cd pgo_work
+          
+          echo "下载 perf.data..."
+          wget -q --show-progress -O perf.data "${{ github.event.inputs.perf_data_url }}"
+          
+          echo "下载 vmlinux.zst..."
+          wget -q --show-progress -O vmlinux.zst "${{ github.event.inputs.vmlinux_url }}"
+          
+          echo "解压 vmlinux..."
+          zstd -d vmlinux.zst
+          
+          if [ ! -f "vmlinux" ] || [ ! -f "perf.data" ]; then
+            echo "::error::文件下载或解压失败！"
+            ls -R
+            exit 1
+          fi
+
+      - name: 执行格式转换 (perf -> afdo)
+        id: conversion
+        run: |
+          cd pgo_work
+          echo "开始转换..."
+          
+          # 执行转换命令
+          # --binary: 指定带有调试符号的内核
+          # --profile: 原始 perf 数据
+          # --out: 输出的 afdo 文件
+          # --format: 必须为 text，Clang 才能识别
+          ${{ env.TOOL_PATH }} \
+            --binary=vmlinux \
+            --profile=perf.data \
+            --out=kernel.afdo \
+            --format=text
+            
+          if [ -s "kernel.afdo" ]; then
+            echo "✅ 转换成功！文件大小: $(du -h kernel.afdo | cut -f1)"
+          else
+            echo "::error::转换失败，输出文件为空。请检查 vmlinux 和 perf.data 是否匹配。"
+            exit 1
+          fi
+
+      - name: 上传 kernel.afdo
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-afdo-output
+          path: pgo_work/kernel.afdo
