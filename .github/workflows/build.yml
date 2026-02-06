@@ -664,6 +664,10 @@ jobs:
 
             echo "CONFIG_ARM64_LSE_ATOMICS=y" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_FRAME_POINTER=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_SLUB_DEBUG_ON=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_DEBUG_INFO=n" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_HZ=1000" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_HZ_1000=y" >> ./common/arch/arm64/configs/gki_defconfig
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
@@ -868,8 +872,8 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
 
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -falign-functions=32 -fno-semantic-interposition -fmerge-all-constants" KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -falign-functions=32 -fno-semantic-interposition -fmerge-all-constants" KCFLAGS+=-Wno-error Image
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -falign-functions=32 -fno-semantic-interposition -fmerge-all-constants -fno-unwind-tables -fno-plt" LDFLAGS_vmlinux+="--icf=all" KCFLAGS+=-Wno-error gki_defconfig &&
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -falign-functions=32 -fno-semantic-interposition -fmerge-all-constants -fno-unwind-tables -fno-plt" LDFLAGS_vmlinux+="--icf=all" KCFLAGS+=-Wno-error Image
           
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
