@@ -663,8 +663,6 @@ jobs:
             grep -q '^CONFIG_LTO_CLANG_THIN=y' "$DEFCONFIG" || echo 'CONFIG_LTO_CLANG_THIN=y' >> "$DEFCONFIG"
 
             echo "CONFIG_ARM64_LSE_ATOMICS=y" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_HZ=1000" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_HZ_1000=y" >> ./common/arch/arm64/configs/gki_defconfig
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
