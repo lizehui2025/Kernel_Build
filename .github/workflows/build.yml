@@ -4,7 +4,7 @@ env:
   ANDROID_VERSION: 'android15'
   KERNEL_VERSION: '6.6'
   CCACHE_DIR: ${{ github.workspace }}/.ccache
-  CCACHE_MAXSIZE: 3G
+  CCACHE_MAXSIZE: 10G
   CCACHE_COMPILERCHECK: content
   CCACHE_NOHASHDIR: "true"
   CCACHE_BASEDIR: ${{ github.workspace }}
