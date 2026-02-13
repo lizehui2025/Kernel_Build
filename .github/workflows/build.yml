@@ -621,7 +621,7 @@ jobs:
             grep -q '^CONFIG_LTO_CLANG_THIN=y' "$DEFCONFIG" || echo 'CONFIG_LTO_CLANG_THIN=y' >> "$DEFCONFIG"
 
           echo "CONFIG_FUNCTION_ALIGNMENT=8" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_CMDLINE="console=ttynull stack_depot_disable=on cgroup_disable=pressure kasan.stacktrace=off kasan=off nmi_watchdog=0 kvm-arm.mode=protected bootconfig ioremap_guard"" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CMDLINE="console=ttynull stack_depot_disable=on cgroup_disable=pressure kasan.stacktrace=off kasan=off nmi_watchdog=0 loglevel=3 kvm-arm.mode=protected bootconfig ioremap_guard"" >> ./common/arch/arm64/configs/gki_defconfig
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
