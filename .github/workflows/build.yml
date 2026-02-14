@@ -151,6 +151,12 @@ jobs:
           fi
           
           echo "Configuration check passed."
+
+      - name: 配置 Swap 空间 (防止编译内存溢出)
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 16
+
       - name: Set REPO_MANIFEST (设置对应机型配置文件)
         run: |
           case "${{ env.DEVICES_NAME }}" in
@@ -616,9 +622,9 @@ jobs:
           echo "正在配置lto中..."
             DEFCONFIG=./common/arch/arm64/configs/gki_defconfig
             sed -i 's/^CONFIG_LTO=n/CONFIG_LTO=y/' "$DEFCONFIG"
-            sed -i 's/^CONFIG_LTO_CLANG_FULL=y/CONFIG_LTO_CLANG_THIN=y/' "$DEFCONFIG"
-            sed -i 's/^CONFIG_LTO_CLANG_NONE=y/CONFIG_LTO_CLANG_THIN=y/' "$DEFCONFIG"
-            grep -q '^CONFIG_LTO_CLANG_THIN=y' "$DEFCONFIG" || echo 'CONFIG_LTO_CLANG_THIN=y' >> "$DEFCONFIG"
+            sed -i 's/^CONFIG_LTO_CLANG_THIN=y/CONFIG_LTO_CLANG_FULL=y/' "$DEFCONFIG"
+            sed -i 's/^CONFIG_LTO_CLANG_NONE=y/CONFIG_LTO_CLANG_FULL=y/' "$DEFCONFIG"
+            grep -q '^CONFIG_LTO_CLANG_FULL=y' "$DEFCONFIG" || echo 'CONFIG_LTO_CLANG_FULL=y' >> "$DEFCONFIG"
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
