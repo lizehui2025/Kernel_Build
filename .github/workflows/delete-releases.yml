@@ -1,0 +1,50 @@
+name: Batch Delete Releases
+
+on:
+  workflow_dispatch: # 支持手动从 Action 页面触发
+    inputs:
+      keep_latest:
+        description: '保留最近的 Release 数量 (0 表示全部删除)'
+        required: true
+        default: '0'
+
+jobs:
+  delete-releases:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 必须赋予写入权限才能删除 Release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Batch Delete Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 获取所有 Release 列表
+          # --limit 1000 确保获取足够多的数量
+          # 使用 jq 排除掉前 N 个（如果输入了 keep_latest）
+          
+          RELEASES=$(gh release list --limit 1000 | awk '{print $1}')
+          
+          KEEP_COUNT=${{ github.event.inputs.keep_latest }}
+          
+          # 将列表转换为数组进行处理
+          RELEASE_ARRAY=($RELEASES)
+          
+          if [ ${#RELEASE_ARRAY[@]} -le $KEEP_COUNT ]; then
+            echo "当前 Release 数量 (${#RELEASE_ARRAY[@]}) 小于或等于保留数量 ($KEEP_COUNT)，无需操作。"
+            exit 0
+          fi
+
+          # 获取需要删除的标签名
+          TO_DELETE=("${RELEASE_ARRAY[@]:$KEEP_COUNT}")
+
+          echo "正在删除以下 Release:"
+          for tag in "${TO_DELETE[@]}"; do
+            echo "Deleting: $tag"
+            # --yes 跳过确认提示
+            # 如果你想连同 Git Tag 一起删掉，可以加上 --cleanup-tag
+            gh release delete "$tag" --yes
+          done
