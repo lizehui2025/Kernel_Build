@@ -22,29 +22,36 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 获取所有 Release 列表
-          # --limit 1000 确保获取足够多的数量
-          # 使用 jq 排除掉前 N 个（如果输入了 keep_latest）
-          
-          RELEASES=$(gh release list --limit 1000 | awk '{print $1}')
-          
-          KEEP_COUNT=${{ github.event.inputs.keep_latest }}
-          
-          # 将列表转换为数组进行处理
-          RELEASE_ARRAY=($RELEASES)
-          
-          if [ ${#RELEASE_ARRAY[@]} -le $KEEP_COUNT ]; then
-            echo "当前 Release 数量 (${#RELEASE_ARRAY[@]}) 小于或等于保留数量 ($KEEP_COUNT)，无需操作。"
+          # 1. 使用 JSON 格式精准获取所有的 tagName
+          # 这可以避免 awk 截取字符串不准的问题
+          TAGS=$(gh release list --limit 1000 --json tagName --jq '.[].tagName')
+
+          KEEP_COUNT=${{ github.event.inputs.keep_latest || 0 }}
+
+          # 2. 将标签列表存入数组
+          # 使用 mapfile 或 readarray 可以安全处理特殊字符
+          readarray -t TAG_ARRAY <<< "$TAGS"
+
+          COUNT=${#TAG_ARRAY[@]}
+          echo "检测到 Release 总数: $COUNT"
+
+          if [ "$COUNT" -le "$KEEP_COUNT" ]; then
+            echo "当前数量未达到保留阈值，跳过删除。"
             exit 0
           fi
 
-          # 获取需要删除的标签名
-          TO_DELETE=("${RELEASE_ARRAY[@]:$KEEP_COUNT}")
+          # 3. 计算需要删除的部分（排除前 N 个最新的）
+          # 使用 "${TAG_ARRAY[@]:$KEEP_COUNT}" 语法进行切片
+          TO_DELETE=("${TAG_ARRAY[@]:$KEEP_COUNT}")
 
-          echo "正在删除以下 Release:"
+          echo "准备删除以下 Release:"
           for tag in "${TO_DELETE[@]}"; do
-            echo "Deleting: $tag"
-            # --yes 跳过确认提示
-            # 如果你想连同 Git Tag 一起删掉，可以加上 --cleanup-tag
-            gh release delete "$tag" --yes
+            # 如果 tag 为空则跳过（防止 readarray 产生的空行）
+            [[ -z "$tag" ]] && continue
+            
+            echo "正在删除 Release: \"$tag\""
+            
+            # 使用双引号包裹 "$tag"，并添加 || true 确保单个失败不卡死整个流程
+            # --cleanup-tag 会连同 git tag 一起删掉，按需决定是否保留
+            gh release delete "$tag" --yes --cleanup-tag || echo "无法删除 $tag，可能已被删除或权限不足"
           done
