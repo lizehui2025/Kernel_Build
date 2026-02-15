@@ -664,13 +664,6 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
           #跳过将uapi标准头安装到 usr/include 目录的不必要操作，节省编译时间
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
-          
-          echo "正在配置lto中..."
-            DEFCONFIG=./common/arch/arm64/configs/gki_defconfig
-            sed -i 's/^CONFIG_LTO=n/CONFIG_LTO=y/' "$DEFCONFIG"
-            sed -i 's/^CONFIG_LTO_CLANG_THIN=y/CONFIG_LTO_CLANG_FULL=y/' "$DEFCONFIG"
-            sed -i 's/^CONFIG_LTO_CLANG_NONE=y/CONFIG_LTO_CLANG_FULL=y/' "$DEFCONFIG"
-            grep -q '^CONFIG_LTO_CLANG_FULL=y' "$DEFCONFIG" || echo 'CONFIG_LTO_CLANG_FULL=y' >> "$DEFCONFIG"
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
@@ -853,8 +846,8 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
 
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2  -g0 -ffunction-sections -fdata-sections -mllvm -inline-threshold=300 --inline-instr-cost=0" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,--lto-partitions=1 -Wl,--threads=1" KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2  -g0 -ffunction-sections -fdata-sections -mllvm -inline-threshold=300 -mllvm --inline-instr-cost=0" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,--lto-partitions=1 -Wl,--threads=1" KCFLAGS+=-Wno-error Image
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2  -fno-semantic-interposition -fmerge-all-constants -mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=release" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment" KCFLAGS+=-Wno-error gki_defconfig &&
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2  -fno-semantic-interposition -fmerge-all-constants -mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=release" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment" KCFLAGS+=-Wno-error Image
           
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
