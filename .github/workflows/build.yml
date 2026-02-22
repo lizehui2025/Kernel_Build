@@ -801,8 +801,8 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
 
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -mllvm -enable-ext-tsp-block-placement=1-mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=releas" LDFLAGS+="-Wl,-O2 --icf=safe --gc-sections --sort-section=alignment -Wl,-mllvm,-import-instr-limit=300 -Wl,-mllvm,-inline-threshold=200" KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -mllvm -enable-ext-tsp-block-placement=1 -mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=releas" LDFLAGS+="-Wl,-O2 --icf=safe --gc-sections --sort-section=alignment -Wl,-mllvm,-import-instr-limit=300 -Wl,-mllvm,-inline-threshold=200" KCFLAGS+=-Wno-error Image
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -mllvm -enable-ext-tsp-block-placement=1-mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=releas" LDFLAGS+="-Wl,-O3 --icf=safe --gc-sections --sort-section=alignment -Wl,-mllvm,-import-instr-limit=300 -Wl,-mllvm,-inline-threshold=200" KCFLAGS+=-Wno-error gki_defconfig &&
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -mllvm -enable-ext-tsp-block-placement=1 -mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=releas" LDFLAGS+="-Wl,-O3 --icf=safe --gc-sections --sort-section=alignment -Wl,-mllvm,-import-instr-limit=300 -Wl,-mllvm,-inline-threshold=200" KCFLAGS+=-Wno-error Image
           
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
