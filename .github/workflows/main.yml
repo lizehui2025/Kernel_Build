@@ -664,6 +664,9 @@ jobs:
           #跳过将uapi标准头安装到 usr/include 目录的不必要操作，节省编译时间
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LTO_CLANG_FULL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # 开启 CFI 宽容模式，拦截异常但放行执行
+          echo "CONFIG_CFI_PERMISSIVE=y" >> ./common/arch/arm64/configs/gki_defconfig
+
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
