@@ -663,9 +663,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
           #跳过将uapi标准头安装到 usr/include 目录的不必要操作，节省编译时间
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_LTO_CLANG_FULL=y" >> ./common/arch/arm64/configs/gki_defconfig
-          # 开启 CFI 宽容模式，拦截异常但放行执行
-          echo "CONFIG_CFI_PERMISSIVE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LTO_CLANG_THIN=y" >> ./common/arch/arm64/configs/gki_defconfig
 
             
       - name: 启用网络功能增强优化配置
@@ -798,7 +796,7 @@ jobs:
           export CCACHE_NOHASHDIR="true"
           export CCACHE_HARDLINK="true"
           export CCACHE_DIR="${{ env.CCACHE_DIR }}"
-          export CCACHE_MAXSIZE="3G"
+          export CCACHE_MAXSIZE="10G"
           echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
           cd kernel_workspace/common
@@ -849,8 +847,8 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
 
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -fno-optimize-sibling-calls -fno-whole-program-vtables" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,-mllvm,-enable-global-merge=false -Wl,-mllvm,-inline-threshold=100 -Wl,-mllvm,-disable-internalize -Wl,--export-dynamic" KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -fno-optimize-sibling-calls -fno-whole-program-vtables" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,-mllvm,-enable-global-merge=false -Wl,-mllvm,-inline-threshold=100 -Wl,-mllvm,-disable-internalize -Wl,--export-dynamic" KCFLAGS+=-Wno-error Image
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O3 ​-fno-strict-aliasing​ -fno-tree-vectorize" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,O3" KCFLAGS+=-Wno-error gki_defconfig &&
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O3 ​-fno-strict-aliasing ​-fno-tree-vectorize" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,O3" KCFLAGS+=-Wno-error Image
           
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
