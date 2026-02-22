@@ -281,7 +281,7 @@ jobs:
       - name: 配置ccache目录
         run: |
           echo "CCACHE_DIR=$HOME/.ccache_6.6.89" >> $GITHUB_ENV
-          echo "CCACHE_MAXSIZE=3G" >> $GITHUB_ENV
+          echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
           echo "当前磁盘空间："
           df -h
           echo "当前构建内核版本：6.6.89"
@@ -847,8 +847,8 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
 
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -fno-lto-whole-program-visibility -mllvm -lto-visibility-public-extern" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,-mllvm,-enable-global-merge=false -Wl,-mllvm,-inline-threshold=100 -Wl,-mllvm,-disable-internalize" KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -fno-lto-whole-program-visibility -mllvm -lto-visibility-public-extern" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,-mllvm,-enable-global-merge=false -Wl,-mllvm,-inline-threshold=100 -Wl,-mllvm,-disable-internalize" KCFLAGS+=-Wno-error Image
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O2 -fvisibility=default -fno-whole-program-vtables -mllvm -lto-visibility-public-extern" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,-mllvm,-enable-global-merge=false -Wl,-mllvm,-inline-threshold=100 -Wl,-mllvm,-disable-internalize" KCFLAGS+=-Wno-error gki_defconfig &&
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O2 ​-fvisibility=default -fno-whole-program-vtables -mllvm -lto-visibility-public-extern" LDFLAGS+=" --gc-sections --icf=safe --sort-section=alignment -Wl,-mllvm,-enable-global-merge=false -Wl,-mllvm,-inline-threshold=100 -Wl,-mllvm,-disable-internalize" KCFLAGS+=-Wno-error Image
           
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
