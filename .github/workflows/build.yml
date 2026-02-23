@@ -730,7 +730,7 @@ jobs:
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
       
-      - name: 构建内核
+      - name: 构建内核 (安全且极致优化版)
         run: |
           WORKDIR="$(pwd)"
           export PATH="/usr/lib/ccache:$PATH"
@@ -744,6 +744,7 @@ jobs:
           echo "LLD版本: $LLD_VERSION"
           pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
           
+          # --- Ccache 配置 ---
           export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
           export CCACHE_COMPILERCHECK="none"
           export CCACHE_BASEDIR="${{ github.workspace }}"
@@ -753,9 +754,10 @@ jobs:
           export CCACHE_MAXSIZE="10G"
           echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
+          # --- 时间劫持配置 (用于绕过版本号校验) ---
           cd kernel_workspace/common
-          wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
-          wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfaketimeMT.so
+          wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
+          wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfaketimeMT.so
           chmod 777 ./*.so
           export FAKESTAT="2025-05-25 12:00:00"
           export FAKETIME="@2025-05-25 13:00:00"
@@ -763,53 +765,61 @@ jobs:
           echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
           SO_DIR=$(pwd)
           export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
-          #创建 CC (编译器) 包装器
+          
+          # 创建编译器包装器
           echo '#!/bin/bash' > cc-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
           echo 'ccache clang "$@"' >> cc-wrapper
-          #创建 LD (链接器) 包装器
+          
+          # 创建链接器包装器
           echo '#!/bin/bash' > ld-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
           echo 'ld.lld "$@"' >> ld-wrapper
-          
-          # 测试时间劫持测试是否正常工作
-          echo "--- [Wrapper Test] 正在创建通用的时间劫持测试脚本 ---"
-          echo '#!/bin/bash' > test-wrapper.sh
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> test-wrapper.sh
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
-          echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
-          echo 'echo ">>> Wrapper 内部环境检查完毕."' >> test-wrapper.sh
-          echo 'exec "$@"' >> test-wrapper.sh # 执行所有传入的参数
-          chmod +x test-wrapper.sh
-          echo "--- [Wrapper Test] 正在测试 (date) 命令 ---"
-          ./test-wrapper.sh date
-          echo "--- [Wrapper Test] 正在测试 (stat) 命令 ---"
-          ./test-wrapper.sh stat ./Makefile
-          echo "--- [Wrapper Test] 测试完毕 ---"
           chmod +x cc-wrapper ld-wrapper
-          echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译前环境文件时间戳: ---"
-          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
+          
           export KBUILD_BUILD_TIMESTAMP="${KERNEL_TIME}"
-          #在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
-          sudo rm -rf /usr/share/dotnet &
-          sudo rm -rf /usr/local/lib/android &
-          sudo rm -rf /opt/ghc &
-          sudo rm -rf /opt/hostedtoolcache/CodeQL &
-
+          
+          # 清理运行库释放空间
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL &
+          
+          # ==========================================
+          # 核心编译参数区 (已清理幽灵空格并重新排版)
+          # ==========================================
+          
+          # 1. Polly 优化参数 (已安全限制)
           POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=none -mllvm -polly-parallel=false -mllvm -polly-run-inliner=false"
           
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+="-O3 -fno-strict-aliasing -fno-tree-vectorize -mllvm -enable-ext-tsp-block-placement=1-mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=release $POLLY_FLAGS" LDFLAGS+="-Wl,-O3 --icf=safe --gc-sections --sort-section=alignment -Wl,-mllvm,-import-instr-limit=300 -Wl,-mllvm,-inline-threshold=200" KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+="-O3 -fno-strict-aliasing -fno-tree-vectorize -mllvm -enable-ext-tsp-block-placement=1 -mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=release $POLLY_FLAGS" LDFLAGS+="-Wl,-O3 --icf=safe --gc-sections --sort-section=alignment -Wl,-mllvm,-import-instr-limit=300 -Wl,-mllvm,-inline-threshold=200" KCFLAGS+=-Wno-error Image
+          # 2. 机器学习与高级 LLVM 特性参数
+          ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=release"
           
-          # 编译后时间劫持二次校验
-          echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译后环境文件时间戳: ---"
-          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
+          # 3. 编译器总体 Flags
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing -fno-tree-vectorize $ML_FLAGS $POLLY_FLAGS -Wno-error"
+          
+          # 4. 链接器总体 Flags 
+          OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-import-instr-limit=300 -Wl,-mllvm,-inline-threshold=200"
+          
+          # ==========================================
+          # 开始编译
+          # ==========================================
+          
+          # 阶段一：仅生成配置 (无需附加任何编译 Flags)
+          echo "--- 开始生成内核配置 ---"
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
+            gki_defconfig
+          
+          # 阶段二：使用极致优化参数编译 Image
+          echo "--- 开始编译内核镜像 ---"
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
+            KCFLAGS="$OPT_KCFLAGS" LDFLAGS="$OPT_LDFLAGS" \
+            Image
+          
+          # 编译后空间及状态检查
           echo "内核编译完成！"
           echo "ccache状态："
           ccache -s
