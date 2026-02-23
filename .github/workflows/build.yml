@@ -794,13 +794,13 @@ jobs:
           POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=none -mllvm -polly-parallel=false -mllvm -polly-run-inliner=false"
           
           # 2. 机器学习与高级 LLVM 特性参数
-          ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -enable-ml-inliner=release -mllvm -regalloc-enable-advisor=release"
+          ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release"
           
           # 3. 编译器总体 Flags
           OPT_KCFLAGS="-O3 -fno-strict-aliasing -fno-tree-vectorize $ML_FLAGS $POLLY_FLAGS -Wno-error"
           
           # 4. 链接器总体 Flags 
-          OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-import-instr-limit=300 -Wl,-mllvm,-inline-threshold=200"
+          OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-import-instr-limit=600 -Wl,-mllvm,-inline-threshold=400"
           
           # ==========================================
           # 开始编译
