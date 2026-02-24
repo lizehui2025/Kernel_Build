@@ -851,10 +851,10 @@ jobs:
           POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=none -mllvm -polly-parallel=false -mllvm -polly-run-inliner=false"
           
           # 2. 机器学习与高级 LLVM 特性参数
-          ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release"
+          ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           
           # 3. 编译器总体 Flags
-          OPT_KCFLAGS="-O3 -fno-strict-aliasing -fno-tree-vectorize $ML_FLAGS $POLLY_FLAGS -Wno-error"
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS $POLLY_FLAGS -Wno-error"
           
           # 3.5 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
