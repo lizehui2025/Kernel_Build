@@ -119,6 +119,11 @@ on:
         required: true
         default: 'false'
         type: boolean
+      autofdo_enable:
+        description: '是否启用 AutoFDO (使用 Google 官方预编译 .afdo 文件优化，提升内核核心性能)'
+        required: true
+        type: boolean
+        default: 'true'
 
 jobs:
   build:
@@ -284,6 +289,40 @@ jobs:
           echo "当前磁盘空间："
           df -h
           echo "当前构建内核版本：6.6.89"
+
+      - name: 获取 Google 官方 6.6 专属 AutoFDO Profile
+        if: inputs.autofdo_enable
+        run: |
+          echo "正在从 AOSP 官方仓库下载精准匹配的 kernel_aarch64.afdo..."
+          cd kernel_workspace
+          
+          # 动态拼接目标分支名 (例如: android15-6.6)
+          AOSP_BRANCH="${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}"
+          echo "尝试从目标分支 [$AOSP_BRANCH] 获取 Profile..."
+          
+          # 使用 curl 获取并记录 HTTP 状态码
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o kernel_aarch64_base64.txt https://android.googlesource.com/kernel/prebuilts/profile/+/refs/heads/$AOSP_BRANCH/kernel_aarch64.afdo?format=TEXT)
+          
+          # 校验是否成功获取对应分支的 Profile
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "成功匹配 $AOSP_BRANCH 分支！"
+            base64 -d kernel_aarch64_base64.txt > kernel_aarch64.afdo
+          else
+            echo "警告：未找到分支 $AOSP_BRANCH 的独立 Profile (HTTP $HTTP_CODE)。"
+            echo "正在回退拉取 AOSP 稳定的通用基线 Profile..."
+            # 备用方案：回退到通常维护最稳定的 android14-6.6 或直接使用 main 历史基线
+            curl -s https://android.googlesource.com/kernel/prebuilts/profile/+/refs/heads/main/kernel_aarch64.afdo?format=TEXT | base64 -d > kernel_aarch64.afdo
+          fi
+          
+          # 清理临时文件并检查结果
+          rm -f kernel_aarch64_base64.txt
+          if [ -s kernel_aarch64.afdo ]; then
+            echo "AutoFDO 配置文件下载完成，准备注入编译器！文件信息："
+            ls -lh kernel_aarch64.afdo
+          else
+            echo "::error::AutoFDO 配置文件下载失败，文件为空！"
+            exit 1
+          fi
 
       - name: 载入 ccache 缓存
         uses: actions/cache@v4
@@ -619,6 +658,11 @@ jobs:
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
           
           echo "CONFIG_LTO_CLANG_THIN=y" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          # --- 以下为新增的 AutoFDO 开启代码 ---
+          if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
+            echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
@@ -798,6 +842,16 @@ jobs:
           
           # 3. 编译器总体 Flags
           OPT_KCFLAGS="-O3 -fno-strict-aliasing -fno-tree-vectorize $ML_FLAGS $POLLY_FLAGS -Wno-error"
+          
+          # 3.5 注入 AutoFDO 参数
+          if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
+            echo "--- 正在将 AutoFDO Profile 注入编译器 ---"
+            AFDO_FILE="$WORKDIR/kernel_workspace/kernel_aarch64.afdo"
+            # 方案A：通过标准 Kbuild 变量传入
+            export CLANG_AUTOFDO_PROFILE="$AFDO_FILE"
+            # 方案B：强制写入 KCFLAGS 以防 GKI 脚本屏蔽
+            OPT_KCFLAGS="$OPT_KCFLAGS -fprofile-sample-use=$AFDO_FILE"
+          fi
           
           # 4. 链接器总体 Flags 
           OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-import-instr-limit=600 -Wl,-mllvm,-inline-threshold=400"
