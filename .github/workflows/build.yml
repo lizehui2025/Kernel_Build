@@ -293,34 +293,47 @@ jobs:
       - name: 获取 Google 官方 6.6 专属 AutoFDO Profile
         if: inputs.autofdo_enable
         run: |
-          echo "正在从 AOSP 官方仓库下载精准匹配的 kernel_aarch64.afdo..."
+          echo "正在从 AOSP 官方仓库下载精准匹配的 kernel.afdo..."
           cd kernel_workspace
           
           # 动态拼接目标分支名 (例如: android15-6.6)
           AOSP_BRANCH="${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}"
           echo "尝试从目标分支 [$AOSP_BRANCH] 获取 Profile..."
           
+          # 正确的 AOSP 仓库和路径 (kernel/common 仓库下的 android/gki/aarch64/afdo/kernel.afdo)
+          AFDO_URL="https://android.googlesource.com/kernel/common/+/refs/heads/$AOSP_BRANCH/android/gki/aarch64/afdo/kernel.afdo?format=TEXT"
+          
           # 使用 curl 获取并记录 HTTP 状态码
-          HTTP_CODE=$(curl -s -w "%{http_code}" -o kernel_aarch64_base64.txt https://android.googlesource.com/kernel/prebuilts/profile/+/refs/heads/$AOSP_BRANCH/kernel_aarch64.afdo?format=TEXT)
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o kernel_afdo_base64.txt "$AFDO_URL")
           
           # 校验是否成功获取对应分支的 Profile
           if [ "$HTTP_CODE" -eq 200 ]; then
             echo "成功匹配 $AOSP_BRANCH 分支！"
-            base64 -d kernel_aarch64_base64.txt > kernel_aarch64.afdo
+            base64 -d kernel_afdo_base64.txt > kernel_aarch64.afdo
           else
             echo "警告：未找到分支 $AOSP_BRANCH 的独立 Profile (HTTP $HTTP_CODE)。"
-            echo "正在回退拉取 AOSP 稳定的通用基线 Profile..."
-            # 备用方案：回退到通常维护最稳定的 android14-6.6 或直接使用 main 历史基线
-            curl -s https://android.googlesource.com/kernel/prebuilts/profile/+/refs/heads/main/kernel_aarch64.afdo?format=TEXT | base64 -d > kernel_aarch64.afdo
+            echo "正在回退拉取 AOSP 稳定的 android-mainline 基线 Profile..."
+            
+            # 备用方案：回退到 android-mainline 分支（内核主线基线）
+            FALLBACK_URL="https://android.googlesource.com/kernel/common/+/refs/heads/android-mainline/android/gki/aarch64/afdo/kernel.afdo?format=TEXT"
+            FALLBACK_CODE=$(curl -s -w "%{http_code}" -o kernel_afdo_base64_fallback.txt "$FALLBACK_URL")
+            
+            if [ "$FALLBACK_CODE" -eq 200 ]; then
+                echo "成功拉取 android-mainline 备用 Profile！"
+                base64 -d kernel_afdo_base64_fallback.txt > kernel_aarch64.afdo
+            else
+                echo "::error::备用 Profile 也拉取失败 (HTTP $FALLBACK_CODE)！AOSP 链接可能已更改。"
+                exit 1
+            fi
           fi
           
           # 清理临时文件并检查结果
-          rm -f kernel_aarch64_base64.txt
+          rm -f kernel_afdo_base64*.txt
           if [ -s kernel_aarch64.afdo ]; then
             echo "AutoFDO 配置文件下载完成，准备注入编译器！文件信息："
             ls -lh kernel_aarch64.afdo
           else
-            echo "::error::AutoFDO 配置文件下载失败，文件为空！"
+            echo "::error::AutoFDO 配置文件下载失败，文件为空或解压出错！"
             exit 1
           fi
 
