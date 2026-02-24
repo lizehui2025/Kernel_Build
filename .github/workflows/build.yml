@@ -848,7 +848,7 @@ jobs:
           # ==========================================
           
           # 1. Polly 优化参数 (已安全限制)
-          POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=none -mllvm -polly-parallel=false -mllvm -polly-run-inliner=false"
+          POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-parallel=false -mllvm -polly-run-inliner=true -mllvm -polly-ast-use-context"
           
           # 2. 机器学习与高级 LLVM 特性参数
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
@@ -867,7 +867,7 @@ jobs:
           fi
           
           # 4. 链接器总体 Flags 
-          OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-import-instr-limit=600 -Wl,-mllvm,-inline-threshold=400"
+          OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-polly"
           
           # ==========================================
           # 开始编译
