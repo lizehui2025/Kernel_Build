@@ -866,30 +866,37 @@ jobs:
           
           # 4. 链接器总体 Flags 
           OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-polly"
+
+          cd kernel_workspace/common
+          
+          # ==========================================
+          # Oplus KMI/ABI 保护配置
+          # ==========================================
+          # 指定 Oplus 专属的 KMI 符号表
+          OPLUS_KMI_LIST="android/abi_gki_aarch64_oplus"
+          
+          if [ -f "$OPLUS_KMI_LIST" ]; then
+            echo "✅ 成功检测到 Oplus 专属 KMI 符号表: $OPLUS_KMI_LIST"
+            # KMI_SYMBOL_LIST: 限制仅导出列表中的符号
+            # KMI_SYMBOL_LIST_STRICT=1: 开启严格校验，符号缺失或 CRC 变更直接阻断编译
+            export ABI_FLAGS="KMI_SYMBOL_LIST=$OPLUS_KMI_LIST KMI_SYMBOL_LIST_STRICT=1"
+          else
+            echo "⚠️ 未在源码的 android/ 目录下找到 $OPLUS_KMI_LIST！"
+            echo "将回退到无严格保护模式编译，请检查源码树是否包含该文件。"
+            export ABI_FLAGS=""
+          fi
           
           # ==========================================
           # 开始编译
           # ==========================================
           
-          # 检查官方 KMI 符号表是否存在
-          KMI_LIST="android/abi_gki_aarch64_oplus"
-          if [ -f "kernel_workspace/common/$KMI_LIST" ]; then
-            echo "✅ 成功检测到官方 KMI 符号表: $KMI_LIST"
-            export ABI_FLAGS="KMI_SYMBOL_LIST=$KMI_LIST KMI_SYMBOL_LIST_STRICT=1"
-          else
-            echo "⚠️ 未在源码中找到 $KMI_LIST，将尝试默认编译，ABI 保护可能不完整。"
-            export ABI_FLAGS=""
-          fi
-          
-          cd kernel_workspace/common
-          
-          # 阶段一：仅生成配置
+          # 阶段一：仅生成配置 (无需附加任何编译 Flags)
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
             gki_defconfig
           
-          # 阶段二：使用极致优化参数及 ABI 保护编译 Image
+          # 阶段二：使用极致优化参数及 Oplus ABI 保护编译 Image
           echo "--- 开始编译内核镜像 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
@@ -899,9 +906,7 @@ jobs:
           
           # 编译后空间及状态检查
           echo "内核编译完成！"
-          echo "ccache状态："
           ccache -s
-          echo "编译后空间:"
           df -h
          
       - name: 应用KPM并修补内核
