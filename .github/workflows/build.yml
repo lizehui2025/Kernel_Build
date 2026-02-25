@@ -872,7 +872,7 @@ jobs:
           # ==========================================
           
           # 检查官方 KMI 符号表是否存在
-          KMI_LIST="android/abi_gki_aarch64_symbols"
+          KMI_LIST="android/abi_gki_aarch64_oplus"
           if [ -f "kernel_workspace/common/$KMI_LIST" ]; then
             echo "✅ 成功检测到官方 KMI 符号表: $KMI_LIST"
             export ABI_FLAGS="KMI_SYMBOL_LIST=$KMI_LIST KMI_SYMBOL_LIST_STRICT=1"
