@@ -871,17 +871,30 @@ jobs:
           # 开始编译
           # ==========================================
           
-          # 阶段一：仅生成配置 (无需附加任何编译 Flags)
+          # 检查官方 KMI 符号表是否存在
+          KMI_LIST="android/abi_gki_aarch64_symbols"
+          if [ -f "kernel_workspace/common/$KMI_LIST" ]; then
+            echo "✅ 成功检测到官方 KMI 符号表: $KMI_LIST"
+            export ABI_FLAGS="KMI_SYMBOL_LIST=$KMI_LIST KMI_SYMBOL_LIST_STRICT=1"
+          else
+            echo "⚠️ 未在源码中找到 $KMI_LIST，将尝试默认编译，ABI 保护可能不完整。"
+            export ABI_FLAGS=""
+          fi
+          
+          cd kernel_workspace/common
+          
+          # 阶段一：仅生成配置
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
             gki_defconfig
           
-          # 阶段二：使用极致优化参数编译 Image
+          # 阶段二：使用极致优化参数及 ABI 保护编译 Image
           echo "--- 开始编译内核镜像 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
             KCFLAGS="$OPT_KCFLAGS" LDFLAGS="$OPT_LDFLAGS" \
+            $ABI_FLAGS \
             Image
           
           # 编译后空间及状态检查
