@@ -670,7 +670,6 @@ jobs:
           
           echo "CONFIG_LTO_CLANG_THIN=y" >> ./common/arch/arm64/configs/gki_defconfig
           
-          # --- 以下为新增的 AutoFDO 开启代码 ---
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
             echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
@@ -785,7 +784,7 @@ jobs:
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
       
-      - name: 构建内核 (安全且极致优化版)
+      - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
           export PATH="/usr/lib/ccache:$PATH"
@@ -842,17 +841,17 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL &
           
           # ==========================================
-          # 核心编译参数区 (已清理幽灵空格并重新排版)
+          # 核心编译参数区
           # ==========================================
           
           # 1. Polly 优化参数 (已安全限制)
-          POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-parallel=false -mllvm -polly-run-inliner=true -mllvm -polly-ast-use-context"
+          POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-parallel=false -mllvm -polly-run-inliner=true -mllvm -polly-ast-use-context -mllvm -polly-tiling=true -mllvm -polly-default-tile-size=64"
           
           # 2. 机器学习与高级 LLVM 特性参数
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           
           # 3. 编译器总体 Flags
-          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS $POLLY_FLAGS -Wno-error"
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS $POLLY_FLAGS -Wno-error -falign-functions=16 -falign-loops=16"
           
           # 3.5 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
