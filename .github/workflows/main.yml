@@ -865,7 +865,7 @@ jobs:
           fi
           
           # 4. 链接器总体 Flags 
-          OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-polly"
+          OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-polly Wl,-plugin-opt=-preserve-all-symbols"
           
           # ==========================================
           # Oplus KMI/ABI 保护配置
