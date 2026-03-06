@@ -669,6 +669,9 @@ jobs:
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
           
           
+          echo "CONFIG_LTO_CLANG_THIN=y" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          # --- 以下为新增的 AutoFDO 开启代码 ---
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
             echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
