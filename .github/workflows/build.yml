@@ -336,13 +336,14 @@ jobs:
           fi
 
       - name: 载入 ccache 缓存
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
+        id: ccache-restore
         with:
           path: ${{ env.CCACHE_DIR }}
-          # 改进 Key 逻辑，确保每次构建都能保存
-          key: ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-${{ github.sha }}
+          key: ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-
+
       
       - name: 初始化并配置ccache
         run: |
@@ -908,6 +909,14 @@ jobs:
           ccache -s
           df -h
          
+      - name: 保存 ccache 缓存
+        uses: actions/cache/save@v4
+        # 仅在编译成功时保存缓存，避免将错误的编译中间件混入缓存
+        if: success() 
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: 应用KPM并修补内核
         run: |
           if [[ ${{ github.event.inputs.kpm_enable }} == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
