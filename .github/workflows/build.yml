@@ -783,10 +783,10 @@ jobs:
           # 2. 机器学习与高级 LLVM 特性参数
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           
-          # 3. 编译器总体 Flags (前端退回 O2，砍掉 moutline，增加 sections 分离以配合 gc-sections)
-          OPT_KCFLAGS="-fno-strict-aliasing -ffunction-sections -fdata-sections $ML_FLAGS $POLLY_FLAGS -Wno-error"
+          # 3. 编译器总体 Flags
+          OPT_KCFLAGS="O3 -fno-strict-aliasing -ffunction-sections -fdata-sections $ML_FLAGS $POLLY_FLAGS -Wno-error"
           
-          # 4. 链接器总体 Flags (将 O3 和 ML 转移到 LTO 阶段爆发)
+          # 4. 链接器总体 Flags
           OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly"
           
           # 3.5 注入 AutoFDO 参数 (极致双端注入)
