@@ -784,7 +784,7 @@ jobs:
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           
           # 3. 编译器总体 Flags
-          OPT_KCFLAGS="O3 -fno-strict-aliasing -ffunction-sections -fdata-sections $ML_FLAGS $POLLY_FLAGS -Wno-error"
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing -ffunction-sections -fdata-sections $ML_FLAGS $POLLY_FLAGS -Wno-error"
           
           # 4. 链接器总体 Flags
           OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly"
