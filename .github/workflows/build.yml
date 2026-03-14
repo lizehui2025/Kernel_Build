@@ -735,7 +735,7 @@ jobs:
           # 开启 sloppiness 极大提高 Github Actions 环境下的缓存命中率
           echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
-          # --- 时间劫持配置 (修复 ccache 毒化问题) ---
+          # --- 时间劫持配置---
           cd kernel_workspace/common
           wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
           wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfaketimeMT.so
@@ -747,7 +747,6 @@ jobs:
           SO_DIR=$(pwd)
           export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
           
-          # 【核心修复】：为真实 clang 创建 faketime 子包装器
           echo '#!/bin/bash' > clang-faketime
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> clang-faketime
           echo 'export FAKESTAT="'$FAKESTAT'"' >> clang-faketime
@@ -755,12 +754,10 @@ jobs:
           echo 'exec clang "$@"' >> clang-faketime
           chmod +x clang-faketime
 
-          # 【核心修复】：主 cc-wrapper 仅调用干净的 ccache，让 ccache 去调用子包装器
           echo '#!/bin/bash' > cc-wrapper
           echo 'exec ccache '"$(pwd)/clang-faketime"' "$@"' >> cc-wrapper
           chmod +x cc-wrapper
           
-          # 链接器包装器 (LTO阶段耗内存，不需要ccache)
           echo '#!/bin/bash' > ld-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
@@ -774,10 +771,10 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL &
           
           # ==========================================
-          # 核心编译参数区 (已全面修复 O3 与 AutoFDO 双端注入)
+          # 核心编译参数区
           # ==========================================
           
-          # 1. Polly 优化参数 (去除了不支持的 parallel)
+          # 1. Polly 优化参数
           POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-run-inliner=true -mllvm -polly-ast-use-context -mllvm -polly-tiling=true -mllvm -polly-default-tile-size=64"
           
           # 2. 机器学习与高级 LLVM 特性参数
@@ -789,16 +786,14 @@ jobs:
           # 4. 链接器总体 Flags
           OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly"
           
-          # 3.5 注入 AutoFDO 参数 (极致双端注入)
+          # 3.5 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
-            echo "--- 正在将 AutoFDO Profile 双端注入编译器与链接器 ---"
+            echo "--- 正在将 AutoFDO Profile注入编译器与链接器 ---"
             AFDO_FILE="$WORKDIR/kernel_workspace/kernel_aarch64.afdo"
             
-            # 阶段 A：注入前端编译器 (给 IR 打上热度标签)
             export CLANG_AUTOFDO_PROFILE="$AFDO_FILE"
             OPT_KCFLAGS="$OPT_KCFLAGS -fprofile-sample-use=$AFDO_FILE"
             
-            # 阶段 B：注入 LTO 链接器 (上帝视角内联)
             OPT_LDFLAGS="$OPT_LDFLAGS -Wl,-mllvm,-sample-profile-file=$AFDO_FILE"
             
             # 阶段 C：将机器学习特性延伸到 LTO 阶段进行最终块重排
