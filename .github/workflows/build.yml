@@ -335,11 +335,11 @@ jobs:
       - name: 载入 ccache 缓存
         uses: actions/cache@v4
         with:
-        path: ${{ env.CCACHE_DIR }}
-        key: ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-${{ github.sha }}-${{ github.run_attempt }}
-    restore-keys: |
-      ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-${{ github.sha }}-
-      ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-
+         path: ${{ env.CCACHE_DIR }}
+         key: ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-${{ github.sha }}-${{ github.run_attempt }}
+         restore-keys: |
+            ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-${{ github.sha }}-
+            ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-
 
       - name: 初始化并配置ccache
         run: |
