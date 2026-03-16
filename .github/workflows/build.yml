@@ -4,7 +4,7 @@ env:
   ANDROID_VERSION: 'android15'
   KERNEL_VERSION: '6.6'
   CCACHE_DIR: ${{ github.workspace }}/.ccache
-  CCACHE_MAXSIZE: 10G
+  CCACHE_MAXSIZE: 3G
   CCACHE_COMPILERCHECK: content
   CCACHE_NOHASHDIR: "true"
   CCACHE_BASEDIR: ${{ github.workspace }}
@@ -732,7 +732,7 @@ jobs:
           export CCACHE_NOHASHDIR="true"
           export CCACHE_HARDLINK="true"
           export CCACHE_DIR="${{ env.CCACHE_DIR }}"
-          export CCACHE_MAXSIZE="10G"
+          export CCACHE_MAXSIZE="3G"
           # 开启 sloppiness 极大提高 Github Actions 环境下的缓存命中率
           echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
