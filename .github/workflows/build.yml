@@ -784,7 +784,7 @@ jobs:
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS $POLLY_FLAGS -Wno-error"
           
           # 4. 链接器总体 Flags
-          OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly"
+          OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
           
           # 3.5 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
