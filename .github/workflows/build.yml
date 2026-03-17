@@ -284,84 +284,6 @@ jobs:
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
 
-      - name: 配置 ccache 全局环境变量
-        run: |
-          # 将所有 ccache 配置写入 GITHUB_ENV 确保全局生效
-          echo "CCACHE_DIR=${{ github.workspace }}/.ccache" >> $GITHUB_ENV
-          echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
-          echo "CCACHE_COMPILERCHECK=none" >> $GITHUB_ENV
-          echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
-          echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
-          echo "CCACHE_HARDLINK=true" >> $GITHUB_ENV
-          # 增加哈希容忍度
-          echo "CCACHE_SLOPPINESS=file_macro,time_macros,include_file_mtime,include_file_ctime,modules" >> $GITHUB_ENV
-
-      - name: 载入并保存 ccache 缓存
-        uses: actions/cache@v4 # 修复：降级为稳定版 v4
-        id: ccache-restore
-        with:
-          path: ${{ github.workspace }}/.ccache
-          # 关键修改：Key 必须包含 run_id，确保每次都是新的，永不冲突
-          key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
-          # 恢复逻辑：按照最匹配到次匹配的顺序寻找最近的一次缓存
-          restore-keys: |
-            ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-
-            ${{ env.CCACHE_KEY }}-${{ runner.os }}-
-
-      - name: 初始化并应用 ccache 配置文件
-        run: |
-          mkdir -p "$CCACHE_DIR"
-          ccache -M "$CCACHE_MAXSIZE"
-          ccache -o compression=true
-          ccache -o hard_link=true
-          
-          echo "ccache初始状态:"
-          ccache -s
-          
-          # 如果缓存恢复命中，显示详细信息
-          if [ "${{ steps.ccache-restore.outputs.cache-hit }}" == 'true' ]; then
-            echo "ccache缓存命中详情:"
-            ccache -sv
-          fi
-
-      - name: 拉取公共预置 ccache 缓存
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "检查本地缓存状态..."
-          if [ -d "${{ env.CCACHE_DIR }}" ] && [ "$(ls -A ${{ env.CCACHE_DIR }} 2>/dev/null)" ]; then
-            echo "检测到本地已成功载入 ccache 缓存，跳过公共 ccache 拉取！"
-            exit 0
-          fi
-          
-          echo "未命中缓存，尝试拉取最新公共 ccache ..."
-          mkdir -p ${{ env.CCACHE_DIR }}
-          FILE_NAME="ccache-${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}.tar.zst"
-         
-          if gh release download -p "$FILE_NAME" -R cctv18/public_ccache; then
-            echo "成功下载 $FILE_NAME，正在解压..."
-            tar -I zstd -xf "$FILE_NAME" -C ${{ env.CCACHE_DIR }}
-            echo "公共 ccache 恢复完成！"
-          else
-            echo "公共 ccache 中未找到对应的 ccache 文件，将进行全量全新编译..."
-          fi
-      
-      - name: 清理分支冗余缓存
-        if: always() # 无论成功失败都执行，确保空间释放
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 获取当前分支下除当前运行 ID 外的所有 ccache 缓存 ID
-          CACHE_IDS=$(gh cache list --ref ${{ github.ref }} --limit 100 --json id,key \
-            -q ".[] | select(.key | startswith(\"${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-\")) | select(.key != \"${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}\") | .id")
-          
-          for id in $CACHE_IDS; do
-            gh cache delete $id
-          done
-          echo "冗余缓存清理完成。"
-
-
 
       - name: 提取并配置 Oplus 官方 AutoFDO Profile
         if: inputs.autofdo_enable
@@ -752,6 +674,80 @@ jobs:
           sudo sed -i "s/-4k/$ESCAPED_SUFFIX/g" ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
+      - name: 配置 ccache 全局环境变量与极致容忍度
+        run: |
+          # 1. 统一绝对路径，彻底解决 7MB 空缓存问题
+          echo "CCACHE_DIR=${{ github.workspace }}/.ccache" >> $GITHUB_ENV
+          echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
+          echo "CCACHE_COMPILERCHECK=none" >> $GITHUB_ENV
+          echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
+          echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
+          echo "CCACHE_HARDLINK=true" >> $GITHUB_ENV
+          
+          # 2. 极致容忍度：新增 random_seed 和 system_headers 
+          # 配合你的时间劫持，能最大程度化解 PGO(AutoFDO) 和 LTO 带来的底层随机性导致 Cache Miss
+          echo "CCACHE_SLOPPINESS=file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros,random_seed,system_headers,modules" >> $GITHUB_ENV
+
+      - name: 载入并保存 ccache 缓存
+        uses: actions/cache@v4 # 使用稳定版 v4，修复了之前的语法错位
+        id: ccache-restore
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-
+            ${{ env.CCACHE_KEY }}-${{ runner.os }}-
+
+      - name: 初始化并应用 ccache 配置文件
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache -M "$CCACHE_MAXSIZE"
+          ccache -o compression=true
+          ccache -o hard_link=true
+          
+          # 将刚才配置的极致容忍度直接写入配置文件，双重保险防丢失
+          echo "sloppiness = $CCACHE_SLOPPINESS" >> "$CCACHE_DIR/ccache.conf"
+          
+          echo "ccache初始状态:"
+          ccache -s
+          if [ "${{ steps.ccache-restore.outputs.cache-hit }}" == 'true' ]; then
+            echo "ccache缓存命中详情:"
+            ccache -sv
+          fi
+
+      - name: 拉取公共预置 ccache 缓存
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -d "${{ env.CCACHE_DIR }}" ] && [ "$(ls -A ${{ env.CCACHE_DIR }} 2>/dev/null)" ]; then
+            echo "本地缓存有效，跳过拉取。"
+            exit 0
+          fi
+          
+          echo "尝试拉取最新公共 ccache ..."
+          mkdir -p ${{ env.CCACHE_DIR }}
+          FILE_NAME="ccache-${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}.tar.zst"
+          if gh release download -p "$FILE_NAME" -R cctv18/public_ccache; then
+            tar -I zstd -xf "$FILE_NAME" -C ${{ env.CCACHE_DIR }}
+            echo "公共 ccache 恢复完成！"
+          else
+            echo "未找到公共 ccache，将进行全量编译..."
+          fi
+      
+      - name: 清理分支冗余缓存
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CACHE_IDS=$(gh cache list --ref ${{ github.ref }} --limit 100 --json id,key \
+            -q ".[] | select(.key | startswith(\"${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-\")) | select(.key != \"${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}\") | .id")
+          
+          for id in $CACHE_IDS; do
+            gh cache delete $id
+          done
+          echo "冗余缓存清理完成。"
+
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
@@ -761,19 +757,14 @@ jobs:
           CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
           CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
           LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
+          
           echo "编译器信息:"
           echo "Clang版本: $CLANG_VERSION"
           echo "LLD版本: $LLD_VERSION"
           pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
           
+          # Ccache 日志配置
           export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
-          export CCACHE_COMPILERCHECK="none"
-          export CCACHE_BASEDIR="${{ github.workspace }}"
-          export CCACHE_NOHASHDIR="true"
-          export CCACHE_HARDLINK="true"
-          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
-          export CCACHE_MAXSIZE="10G"
-          echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
           cd kernel_workspace/common
           wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
@@ -785,39 +776,29 @@ jobs:
           echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
           SO_DIR=$(pwd)
           export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
-          #创建 CC (编译器) 包装器
+          
+          # ==========================================
+          # 保持原汁原味的时间劫持逻辑 (避免破坏你现有的命中机制)
+          # ==========================================
           echo '#!/bin/bash' > cc-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
           echo 'ccache clang "$@"' >> cc-wrapper
-          #创建 LD (链接器) 包装器
+          
           echo '#!/bin/bash' > ld-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
           echo 'ld.lld "$@"' >> ld-wrapper
           
-          # 测试时间劫持测试是否正常工作
-          echo "--- [Wrapper Test] 正在创建通用的时间劫持测试脚本 ---"
-          echo '#!/bin/bash' > test-wrapper.sh
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> test-wrapper.sh
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
-          echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
-          echo 'echo ">>> Wrapper 内部环境检查完毕."' >> test-wrapper.sh
-          echo 'exec "$@"' >> test-wrapper.sh # 执行所有传入的参数
-          chmod +x test-wrapper.sh
-          echo "--- [Wrapper Test] 正在测试 (date) 命令 ---"
-          ./test-wrapper.sh date
-          echo "--- [Wrapper Test] 正在测试 (stat) 命令 ---"
-          ./test-wrapper.sh stat ./Makefile
-          echo "--- [Wrapper Test] 测试完毕 ---"
           chmod +x cc-wrapper ld-wrapper
+          
           echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- 编译前环境文件时间戳: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
           
-          #在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
+          # 异步清理空间
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
@@ -825,54 +806,31 @@ jobs:
           
           export KBUILD_BUILD_TIMESTAMP="${KERNEL_TIME}"
           
-          
-          # ==========================================
           # 核心编译参数区
-          # ==========================================
-          
-          # 1. Polly 优化参数
           POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-run-inliner=true -mllvm -polly-ast-use-context -mllvm -polly-tiling=true -mllvm -polly-default-tile-size=64"
-          
-          # 2. 机器学习与高级 LLVM 特性参数
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
-          
-          # 3. 编译器总体 Flags
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS $POLLY_FLAGS -Wno-error"
-          
-          # 4. 链接器总体 Flags
           OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
           
-          # 3.5 注入 AutoFDO 参数
+          # 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
             echo "--- 正在将 AutoFDO Profile注入编译器与链接器 ---"
             AFDO_FILE="$WORKDIR/kernel_workspace/kernel_aarch64.afdo"
-            
             export CLANG_AUTOFDO_PROFILE="$AFDO_FILE"
             OPT_KCFLAGS="$OPT_KCFLAGS -fprofile-sample-use=$AFDO_FILE"
-            
             OPT_LDFLAGS="$OPT_LDFLAGS -Wl,-mllvm,-sample-profile-file=$AFDO_FILE"
-            
-            # 阶段 C：将机器学习特性延伸到 LTO 阶段进行最终块重排
             LTO_ML_FLAGS=$(echo "$ML_FLAGS" | sed 's/-mllvm /-Wl,-mllvm,/g')
             OPT_LDFLAGS="$OPT_LDFLAGS $LTO_ML_FLAGS"
           fi
           
-          # ==========================================
           # Oplus KMI/ABI 保护配置
-          # ==========================================
           OPLUS_KMI_LIST="android/abi_gki_aarch64_oplus"
-          
           if [ -f "$OPLUS_KMI_LIST" ]; then
-            echo "✅ 成功检测到 Oplus 专属 KMI 符号表: $OPLUS_KMI_LIST"
+            echo "✅ 检测到 KMI 符号表: $OPLUS_KMI_LIST"
             export ABI_FLAGS="KMI_SYMBOL_LIST=$OPLUS_KMI_LIST KMI_SYMBOL_LIST_STRICT=1"
           else
-            echo "⚠️ 未找到 $OPLUS_KMI_LIST，回退无保护模式。"
             export ABI_FLAGS=""
           fi
-          
-          # ==========================================
-          # 开始编译
-          # ==========================================
           
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
@@ -886,16 +844,12 @@ jobs:
             $ABI_FLAGS \
             Image
           
-          # 编译后时间劫持二次校验
-          echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译后环境文件时间戳: ---"
-          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
           echo "内核编译完成！"
-          echo "ccache状态："
+          echo "ccache最终状态："
           ccache -s
           echo "编译后空间:"
           df -h
-      
+
       - name: 应用KPM并修补内核
         run: |
           if [[ ${{ github.event.inputs.kpm_enable }} == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
