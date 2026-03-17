@@ -284,23 +284,46 @@ jobs:
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
 
-      - name: 配置ccache目录
+      - name: 初始化并配置ccache
         run: |
-          echo "CCACHE_DIR=$HOME/.ccache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}" >> $GITHUB_ENV
-          echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
-          echo "当前磁盘空间："
-          df -h
-          echo "当前构建内核版本：${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}"
-
-      - name: 载入当前版本内核的 ccache缓存
+          # 1. 强制路径对齐：将绝对路径映射为相对路径点（关键！）
+          export CCACHE_BASEDIR="${{ github.workspace }}"
+          export CCACHE_NOHASHDIR="true"
+          
+          # 2. 增加哈希容忍度：忽略时间宏、文件宏以及头文件的微小时间差异
+          # 这样即便 AutoFDO 触碰了某些文件，只要内容没变，依然能命中
+          export CCACHE_SLOPPINESS="file_macro,time_macros,include_file_mtime,include_file_ctime,modules"
+          
+      - name: 载入并保存 ccache 缓存
         uses: actions/cache@v5
         id: ccache-restore
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}
+          # 关键修改：Key 必须包含 run_id，确保每次都是新的，永不冲突
+          key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          # 恢复逻辑：按照最匹配到次匹配的顺序寻找最近的一次缓存
           restore-keys: |
+            ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-
             ${{ env.CCACHE_KEY }}-${{ runner.os }}-
-            ${{ env.CCACHE_KEY }}-
+
+
+          # 3. 编译器检测优化：既然你确定 .afdo 不变，可以减少编译器校验开销
+          export CCACHE_COMPILERCHECK="none"
+          
+          # 4. 环境配置
+          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
+          mkdir -p "$CCACHE_DIR"
+          ccache -M "${{ env.CCACHE_MAXSIZE }}"
+          ccache -o compression=true
+          ccache -o hard_link=true
+          
+          # 5. LLVM 路径映射适配（针对 AutoFDO 的调试信息路径）
+          # 在你的编译指令中加入以下 CFLAGS：
+          # -fdebug-prefix-map=${{ github.workspace }}=.
+          
+          echo "ccache初始状态:"
+          ccache -s
+
 
       - name: 拉取公共预置 ccache 缓存
         env:
@@ -323,18 +346,22 @@ jobs:
           else
             echo "公共 ccache 中未找到对应的 ccache 文件，将进行全量全新编译..."
           fi
-
-      - name: 清除旧 ccache 缓存
-        if: inputs.ccache_update
+      
+      - name: 清理分支冗余缓存
+        if: always() # 无论成功失败都执行，确保空间释放
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "正在清除仓库中的旧 ccache 缓存..."
-          if gh cache delete ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }} -R ${{ github.repository }}; then
-            echo "成功删除旧的 ccache 缓存！"
-          else
-            echo "旧缓存不存在或已被清理！"
-          fi
+          # 获取当前分支下除当前运行 ID 外的所有 ccache 缓存 ID
+          CACHE_IDS=$(gh cache list --ref ${{ github.ref }} --limit 100 --json id,key \
+            -q ".[] | select(.key | startswith(\"${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-\")) | select(.key != \"${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}\") | .id")
+          
+          for id in $CACHE_IDS; do
+            gh cache delete $id
+          done
+          echo "冗余缓存清理完成。"
+
       
       - name: 初始化并配置ccache
         run: |
