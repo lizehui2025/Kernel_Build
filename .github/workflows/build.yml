@@ -124,11 +124,6 @@ on:
         required: true
         type: boolean
         default: 'true'
-      ccache_update:
-        description: '更新ccache缓存(将本次编译生成的ccache缓存覆盖至仓库缓存，在更改编译配置、源码或需要刷新缓存时开启)'
-        required: true
-        type: boolean
-        default: 'true'
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -674,69 +669,6 @@ jobs:
           sudo sed -i "s/-4k/$ESCAPED_SUFFIX/g" ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
-      - name: 配置全局环境变量与极致容忍度 (Ccache + ThinLTO)
-        run: |
-          # 1. 统一绝对路径，杜绝空缓存问题
-          echo "CCACHE_DIR=${{ github.workspace }}/.ccache" >> $GITHUB_ENV
-          echo "THINLTO_CACHE_DIR=${{ github.workspace }}/.thinlto_cache" >> $GITHUB_ENV
-          echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
-          echo "CCACHE_COMPILERCHECK=none" >> $GITHUB_ENV
-          echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
-          echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
-          echo "CCACHE_HARDLINK=true" >> $GITHUB_ENV
-          
-          # 2. 极致容忍度：加入 random_seed 和 system_headers 护航 PGO 与 LTO
-          echo "CCACHE_SLOPPINESS=file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros,random_seed,system_headers,modules" >> $GITHUB_ENV
-
-      - name: 载入并保存构建缓存 (Ccache + ThinLTO)
-        uses: actions/cache@v4
-        id: build-cache-restore
-        with:
-          # 🚨 核心修改：同时备份 ccache 目录和 lld 的 thinlto 缓存目录
-          path: |
-            ${{ github.workspace }}/.ccache
-            ${{ github.workspace }}/.thinlto_cache
-          key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-
-            ${{ env.CCACHE_KEY }}-${{ runner.os }}-
-
-      - name: 初始化并应用缓存配置
-        run: |
-          # 创建双缓存目录
-          mkdir -p "$CCACHE_DIR"
-          mkdir -p "$THINLTO_CACHE_DIR"
-          
-          # 配置 ccache
-          ccache -M "$CCACHE_MAXSIZE"
-          ccache -o compression=true
-          ccache -o hard_link=true
-          echo "sloppiness = $CCACHE_SLOPPINESS" >> "$CCACHE_DIR/ccache.conf"
-          
-          echo "ccache初始状态:"
-          ccache -s
-          if [ "${{ steps.build-cache-restore.outputs.cache-hit }}" == 'true' ]; then
-            echo "构建缓存命中！"
-          fi
-
-      - name: 拉取公共预置 ccache 缓存
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -d "${{ env.CCACHE_DIR }}" ] && [ "$(ls -A ${{ env.CCACHE_DIR }} 2>/dev/null)" ]; then
-            echo "本地缓存有效，跳过公共缓存拉取。"
-            exit 0
-          fi
-          
-          echo "尝试拉取最新公共 ccache ..."
-          mkdir -p ${{ env.CCACHE_DIR }}
-          FILE_NAME="ccache-${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}.tar.zst"
-          if gh release download -p "$FILE_NAME" -R cctv18/public_ccache; then
-            tar -I zstd -xf "$FILE_NAME" -C ${{ env.CCACHE_DIR }}
-            echo "公共 ccache 恢复完成！"
-          else
-            echo "未找到公共 ccache，将进行全量全新编译..."
-          fi
 
       - name: 构建内核
         run: |
@@ -756,35 +688,6 @@ jobs:
           export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
           
           cd kernel_workspace/common
-          wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
-          wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfaketimeMT.so
-          chmod 777 ./*.so
-          export FAKESTAT="2025-05-25 12:00:00"
-          export FAKETIME="@2025-05-25 13:00:00"
-          echo "FAKESTAT=$FAKESTAT" >> $GITHUB_ENV
-          echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
-          SO_DIR=$(pwd)
-          export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
-          
-          # ==========================================
-          # 保持你的原版时间劫持封装
-          # ==========================================
-          echo '#!/bin/bash' > cc-wrapper
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
-          echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
-          echo 'ccache clang "$@"' >> cc-wrapper
-          
-          echo '#!/bin/bash' > ld-wrapper
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
-          echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
-          echo 'ld.lld "$@"' >> ld-wrapper
-          
-          chmod +x cc-wrapper ld-wrapper
-          
-          echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译前环境文件时间戳: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
           
           # 异步清理磁盘空间
@@ -802,7 +705,7 @@ jobs:
           OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
           
           # 🚨 核心修改：为链接器 LDFLAGS 注入 ThinLTO 缓存配置（限制缓存大小为5G防爆盘）
-          OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--thinlto-cache-dir=$THINLTO_CACHE_DIR -Wl,--thinlto-cache-policy=cache_size_bytes=5g"
+          OPT_LDFLAGS="$OPT_LDFLAGS"
           
           # 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
@@ -826,23 +729,18 @@ jobs:
           
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
+            HOSTLD=ld.lld O=out \
             gki_defconfig
           
           echo "--- 开始编译内核镜像 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
+            HOSTLD=ld.lld O=out \
             KCFLAGS="$OPT_KCFLAGS" LDFLAGS="$OPT_LDFLAGS" \
             $ABI_FLAGS \
             Image
           
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "内核编译完成！"
-          
-          echo "ccache 最终状态："
-          ccache -s
-          echo "ThinLTO 缓存大小："
-          du -sh "$THINLTO_CACHE_DIR" || true
           
           echo "编译后空间:"
           df -h
