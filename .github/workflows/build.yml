@@ -306,15 +306,15 @@ jobs:
             ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-
             ${{ env.CCACHE_KEY }}-${{ runner.os }}-
 
-          export CCACHE_COMPILERCHECK="none"
-          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
-          mkdir -p "$CCACHE_DIR"
-          ccache -M "${{ env.CCACHE_MAXSIZE }}"
-          ccache -o compression=true
-          ccache -o hard_link=true
+            export CCACHE_COMPILERCHECK="none"
+            export CCACHE_DIR="${{ env.CCACHE_DIR }}"
+            mkdir -p "$CCACHE_DIR"
+            ccache -M "${{ env.CCACHE_MAXSIZE }}"
+            ccache -o compression=true
+            ccache -o hard_link=true
           
-          echo "ccache初始状态:"
-          ccache -s
+            echo "ccache初始状态:"
+            ccache -s
 
 
       - name: 拉取公共预置 ccache 缓存
