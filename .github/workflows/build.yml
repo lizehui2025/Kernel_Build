@@ -674,45 +674,49 @@ jobs:
           sudo sed -i "s/-4k/$ESCAPED_SUFFIX/g" ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
-      - name: 配置 ccache 全局环境变量与极致容忍度
+      - name: 配置全局环境变量与极致容忍度 (Ccache + ThinLTO)
         run: |
-          # 1. 统一绝对路径，彻底解决 7MB 空缓存问题
+          # 1. 统一绝对路径，杜绝空缓存问题
           echo "CCACHE_DIR=${{ github.workspace }}/.ccache" >> $GITHUB_ENV
+          echo "THINLTO_CACHE_DIR=${{ github.workspace }}/.thinlto_cache" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
           echo "CCACHE_COMPILERCHECK=none" >> $GITHUB_ENV
           echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
           echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
           echo "CCACHE_HARDLINK=true" >> $GITHUB_ENV
           
-          # 2. 极致容忍度：新增 random_seed 和 system_headers 
-          # 配合你的时间劫持，能最大程度化解 PGO(AutoFDO) 和 LTO 带来的底层随机性导致 Cache Miss
+          # 2. 极致容忍度：加入 random_seed 和 system_headers 护航 PGO 与 LTO
           echo "CCACHE_SLOPPINESS=file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros,random_seed,system_headers,modules" >> $GITHUB_ENV
 
-      - name: 载入并保存 ccache 缓存
-        uses: actions/cache@v4 # 使用稳定版 v4，修复了之前的语法错位
-        id: ccache-restore
+      - name: 载入并保存构建缓存 (Ccache + ThinLTO)
+        uses: actions/cache@v4
+        id: build-cache-restore
         with:
-          path: ${{ github.workspace }}/.ccache
+          # 🚨 核心修改：同时备份 ccache 目录和 lld 的 thinlto 缓存目录
+          path: |
+            ${{ github.workspace }}/.ccache
+            ${{ github.workspace }}/.thinlto_cache
           key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
             ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-
             ${{ env.CCACHE_KEY }}-${{ runner.os }}-
 
-      - name: 初始化并应用 ccache 配置文件
+      - name: 初始化并应用缓存配置
         run: |
+          # 创建双缓存目录
           mkdir -p "$CCACHE_DIR"
+          mkdir -p "$THINLTO_CACHE_DIR"
+          
+          # 配置 ccache
           ccache -M "$CCACHE_MAXSIZE"
           ccache -o compression=true
           ccache -o hard_link=true
-          
-          # 将刚才配置的极致容忍度直接写入配置文件，双重保险防丢失
           echo "sloppiness = $CCACHE_SLOPPINESS" >> "$CCACHE_DIR/ccache.conf"
           
           echo "ccache初始状态:"
           ccache -s
-          if [ "${{ steps.ccache-restore.outputs.cache-hit }}" == 'true' ]; then
-            echo "ccache缓存命中详情:"
-            ccache -sv
+          if [ "${{ steps.build-cache-restore.outputs.cache-hit }}" == 'true' ]; then
+            echo "构建缓存命中！"
           fi
 
       - name: 拉取公共预置 ccache 缓存
@@ -720,7 +724,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -d "${{ env.CCACHE_DIR }}" ] && [ "$(ls -A ${{ env.CCACHE_DIR }} 2>/dev/null)" ]; then
-            echo "本地缓存有效，跳过拉取。"
+            echo "本地缓存有效，跳过公共缓存拉取。"
             exit 0
           fi
           
@@ -731,7 +735,7 @@ jobs:
             tar -I zstd -xf "$FILE_NAME" -C ${{ env.CCACHE_DIR }}
             echo "公共 ccache 恢复完成！"
           else
-            echo "未找到公共 ccache，将进行全量编译..."
+            echo "未找到公共 ccache，将进行全量全新编译..."
           fi
       
       - name: 清理分支冗余缓存
@@ -763,7 +767,6 @@ jobs:
           echo "LLD版本: $LLD_VERSION"
           pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
           
-          # Ccache 日志配置
           export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
           
           cd kernel_workspace/common
@@ -778,7 +781,7 @@ jobs:
           export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
           
           # ==========================================
-          # 保持原汁原味的时间劫持逻辑 (避免破坏你现有的命中机制)
+          # 保持你的原版时间劫持封装
           # ==========================================
           echo '#!/bin/bash' > cc-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
@@ -798,7 +801,7 @@ jobs:
           echo "--- 编译前环境文件时间戳: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
           
-          # 异步清理空间
+          # 异步清理磁盘空间
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
@@ -811,6 +814,9 @@ jobs:
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS $POLLY_FLAGS -Wno-error"
           OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
+          
+          # 🚨 核心修改：为链接器 LDFLAGS 注入 ThinLTO 缓存配置（限制缓存大小为5G防爆盘）
+          OPT_LDFLAGS="$OPT_LDFLAGS -Wl,--thinlto-cache-dir=$THINLTO_CACHE_DIR -Wl,--thinlto-cache-policy=cache_size_bytes=5g"
           
           # 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
@@ -844,9 +850,14 @@ jobs:
             $ABI_FLAGS \
             Image
           
+          echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "内核编译完成！"
-          echo "ccache最终状态："
+          
+          echo "ccache 最终状态："
           ccache -s
+          echo "ThinLTO 缓存大小："
+          du -sh "$THINLTO_CACHE_DIR" || true
+          
           echo "编译后空间:"
           df -h
 
