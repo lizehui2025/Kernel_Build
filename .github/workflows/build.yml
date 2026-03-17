@@ -737,20 +737,6 @@ jobs:
           else
             echo "未找到公共 ccache，将进行全量全新编译..."
           fi
-      
-      - name: 清理分支冗余缓存
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          CACHE_IDS=$(gh cache list --ref ${{ github.ref }} --limit 100 --json id,key \
-            -q ".[] | select(.key | startswith(\"${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-\")) | select(.key != \"${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}\") | .id")
-          
-          for id in $CACHE_IDS; do
-            gh cache delete $id
-          done
-          echo "冗余缓存清理完成。"
 
       - name: 构建内核
         run: |
