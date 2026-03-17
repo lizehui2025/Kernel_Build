@@ -306,20 +306,12 @@ jobs:
             ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-
             ${{ env.CCACHE_KEY }}-${{ runner.os }}-
 
-
-          # 3. 编译器检测优化：既然你确定 .afdo 不变，可以减少编译器校验开销
           export CCACHE_COMPILERCHECK="none"
-          
-          # 4. 环境配置
           export CCACHE_DIR="${{ env.CCACHE_DIR }}"
           mkdir -p "$CCACHE_DIR"
           ccache -M "${{ env.CCACHE_MAXSIZE }}"
           ccache -o compression=true
           ccache -o hard_link=true
-          
-          # 5. LLVM 路径映射适配（针对 AutoFDO 的调试信息路径）
-          # 在你的编译指令中加入以下 CFLAGS：
-          # -fdebug-prefix-map=${{ github.workspace }}=.
           
           echo "ccache初始状态:"
           ccache -s
