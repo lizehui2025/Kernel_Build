@@ -888,8 +888,14 @@ jobs:
             $ABI_FLAGS \
             Image
           
+          # 编译后时间劫持二次校验
+          echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
+          echo "--- 编译后环境文件时间戳: ---"
+          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
           echo "内核编译完成！"
+          echo "ccache状态："
           ccache -s
+          echo "编译后空间:"
           df -h
 
       - name: 应用KPM并修补内核
