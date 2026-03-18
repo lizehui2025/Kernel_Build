@@ -124,11 +124,6 @@ on:
         required: true
         type: boolean
         default: 'true'
-      abi_kmi_check:
-        description: '是否开启 ABI/KMI 兼容性验证 (注意: 开启后会生成DWARF调试信息，显著增加编译时间与空间消耗)'
-        required: true
-        type: boolean
-        default: 'false'
 
 jobs:
   build:
@@ -266,19 +261,20 @@ jobs:
           mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_v_16.0.0_oneplus_13_6.6.89" common &&
           rm -rf common.zip &
           
-          echo "正在克隆llvm-clang18工具链..." &&
-          mkdir -p clang18 &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/clang-r510928.zip -o clang.zip &&
-          unzip -q clang.zip -d clang18 &&
+
+          echo "正在克隆llvm-Clang22工具链..." &&
+          mkdir -p clang22 &&
+          aria2c -s16 -x16 -k1M https://github.com/bachnxuan/aosp_clang_mirror/releases/download/clang-r584948b-14726520/clang-r584948b.tar.gz -o clang.zip &&
+          tar -xf clang.zip -C clang22 &&
           rm -rf clang.zip &
           
           echo "正在克隆构建工具..." &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/build-tools.zip -o build-tools.zip &&
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang20-r547379/build-tools.zip -o build-tools.zip &&
           unzip -q build-tools.zip &&
           rm -rf build-tools.zip &
           
           wait
-          echo "所有源码及llvm-Clang18工具链初始化完成！"
+          echo "所有源码及llvm-Clang20工具链初始化完成！"
           echo "正在去除 dirty 后缀..."
           for f in common/scripts/setlocalversion; do
             sed -i 's/ -dirty//g' "$f"
@@ -589,13 +585,6 @@ jobs:
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
             echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
-          
-          # 🚨 可选：开启 DWARF 调试信息以支持 ABI/KMI 提取
-          if [[ "${{ github.event.inputs.abi_kmi_check }}" == "true" ]]; then
-            echo "--- 已开启 ABI/KMI 验证，注入 DWARF 调试配置 ---"
-            echo "CONFIG_DEBUG_INFO=y" >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_DEBUG_INFO_DWARF4=y" >> ./common/arch/arm64/configs/gki_defconfig
-          fi
 
             
       - name: 启用网络功能增强优化配置
@@ -687,10 +676,9 @@ jobs:
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
-          export PATH="/usr/lib/ccache:$PATH"
-          export PATH="$WORKDIR/kernel_workspace/clang18/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/clang22/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-          CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
+          CLANG_DIR="$WORKDIR/kernel_workspace/clang22/bin"
           CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
           LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
           
@@ -718,9 +706,6 @@ jobs:
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS $POLLY_FLAGS -Wno-error"
           OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
           
-          # 🚨 核心修改：为链接器 LDFLAGS 注入 ThinLTO 缓存配置（限制缓存大小为5G防爆盘）
-          OPT_LDFLAGS="$OPT_LDFLAGS"
-          
           # 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
             echo "--- 正在将 AutoFDO Profile注入编译器与链接器 ---"
@@ -741,14 +726,6 @@ jobs:
             export ABI_FLAGS=""
           fi
           
-          # 动态决定编译目标
-          if [[ "${{ github.event.inputs.abi_kmi_check }}" == "true" ]]; then
-            BUILD_TARGETS="vmlinux Image modules"
-            echo "--- 开启 ABI 验证，将编译目标设置为: $BUILD_TARGETS ---"
-          else
-            BUILD_TARGETS="Image"
-          fi
-          
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             HOSTLD=ld.lld O=out \
@@ -766,43 +743,6 @@ jobs:
           
           echo "编译后空间:"
           df -h
-
-      - name: 提取与验证 ABI/KMI 兼容性
-        if: inputs.abi_kmi_check == 'true'
-        run: |
-          cd kernel_workspace/common
-          echo "--- 开始提取当前内核 ABI (vmlinux) ---"
-          # abidw 需要读取带有 DWARF 的 vmlinux
-          abidw --linux-tree out --out-file out/current_abi.xml out/vmlinux
-          
-          OPLUS_KMI_LIST="android/abi_gki_aarch64_oplus"
-          # 尝试查找 Oplus/Android 基准 ABI XML 文件
-          REFERENCE_ABI=$(find android -name "abi_gki_aarch64*.xml" | head -n 1)
-          
-          if [ -n "$REFERENCE_ABI" ] && [ -f "$REFERENCE_ABI" ]; then
-              echo "✅ 找到基准 ABI 文件: $REFERENCE_ABI"
-              echo "--- 开始对比 ABI/KMI 差异 ---"
-              # 对比并过滤非 KMI 白名单中的符号
-              abidiff --kmi-whitelist $OPLUS_KMI_LIST $REFERENCE_ABI out/current_abi.xml > out/abi_diff.log || true
-              
-              if [ -s out/abi_diff.log ]; then
-                  echo "⚠️ 发现 ABI/KMI 变更！差异内容如下："
-                  cat out/abi_diff.log
-              else
-                  echo "✅ ABI/KMI 校验通过，与基线完美一致！"
-              fi
-          else
-              echo "⚠️ 未在源码树找到基准 ABI XML 文件，跳过差异对比，仅保存当前 ABI 状态(current_abi.xml)。"
-          fi
-
-      - name: 上传 ABI/KMI 验证报告
-        if: always() && inputs.abi_kmi_check == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ABI_KMI_Reports
-          path: |
-            ${{ github.workspace }}/kernel_workspace/common/out/current_abi.xml
-            ${{ github.workspace }}/kernel_workspace/common/out/abi_diff.log
 
       - name: 应用KPM并修补内核
         run: |
@@ -851,13 +791,6 @@ jobs:
           else
             zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ env.KERNEL_NAME }}.zip ./*
           fi
-
-      - name: 上传 Ccache 调试日志
-        if: always() && inputs.ccache_debug
-        uses: actions/upload-artifact@v4
-        with:
-          name: ccache-debug-log
-          path: ${{ github.workspace }}/kernel_workspace/ccache.log
 
       - name: 上传 ZIP 工件
         uses: actions/upload-artifact@v4
