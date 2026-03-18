@@ -1,13 +1,13 @@
 name: 加速版构建 6.6.89 欧加真OKI内核（测试）
+
 env:
   TZ: Asia/Shanghai
   ANDROID_VERSION: 'android15'
   KERNEL_VERSION: '6.6'
-  CCACHE_DIR: ${{ github.workspace }}/.ccache
-  CCACHE_MAXSIZE: 10G
-  CCACHE_COMPILERCHECK: content
-  CCACHE_NOHASHDIR: "true"
-  CCACHE_BASEDIR: ${{ github.workspace }}
+  SUB_VERSION: '89'
+  KERNEL_NAME: 'android15-8-g29d86c5fc9dd-abogki428889875-4k'
+  CCACHE_KEY: ccache-neov4-6.6.89
+
 on:
   workflow_dispatch:
     inputs:
@@ -57,7 +57,7 @@ on:
           - 'ksu'
           - 'none'
       susfs_enable:
-        description: '是否开启susfs(用于增强隐藏环境挂载功能; 可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭,该选项与HymoFS冲突)'
+        description: '是否开启susfs(用于增强隐藏环境挂载功能;可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭,该选项与HymoFS冲突)'
         required: true
         type: boolean
         default: 'false'
@@ -124,7 +124,6 @@ on:
         required: true
         type: boolean
         default: 'true'
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -156,7 +155,6 @@ jobs:
           fi
           
           echo "Configuration check passed."
-
       - name: 配置 Swap 空间 (防止编译内存溢出)
         uses: pierotofy/set-swap-space@master
         with:
@@ -216,7 +214,7 @@ jobs:
             oneplus_ace5_pro | oneplus_ace_6 | oneplus_13t | oneplus_ace5_ultra | realme_GT7pro_Speed | realme_GT7pro | realme_GT8)
               echo 'DEFAULT_SUFFIX=-android15-8-g29d86c5fc9dd-abogki428889875-4k' >> $GITHUB_ENV
               ;;
-          esac
+            esac
             echo "使用原官核名称：${{ env.DEFAULT_SUFFIX }}"
           else
             echo "使用自定义名称: ${{ github.event.inputs.custom_kernel_suffix }}"
@@ -252,10 +250,9 @@ jobs:
           sudo apt-mark hold libc-bin &&
           sudo apt purge man-db &&
           sudo rm -rf /var/lib/man-db/auto-update &&
+          
           sudo apt update &&
           sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache &
-          #旧版完整指令：（由于经过验证大部分指令已内置于GitHub Action环境中，故进行精简）
-          #sudo apt-get install -y --no-install-recommends curl bison flex make binutils git perl gcc python3 python-is-python3 bc libssl-dev libelf-dev zip unzip ccache
           
           echo "正在克隆源码仓库..."
           aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_16.0.0_oneplus_13_6.6.89.zip -o common.zip && 
@@ -282,13 +279,6 @@ jobs:
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
 
-      - name: 配置ccache目录
-        run: |
-          echo "CCACHE_DIR=$HOME/.ccache_6.6.89" >> $GITHUB_ENV
-          echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
-          echo "当前磁盘空间："
-          df -h
-          echo "当前构建内核版本：6.6.89"
 
       - name: 提取并配置 Oplus 官方 AutoFDO Profile
         if: inputs.autofdo_enable
@@ -335,112 +325,41 @@ jobs:
             exit 1
           fi
 
-      - name: 载入 ccache 缓存
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          # 改进 Key 逻辑，确保每次构建都能保存
-          key: ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-${{ github.sha }}
-          restore-keys: |
-            ccache-kernel-${{ github.event.inputs.DEVICES_NAME }}-
-      
-      - name: 初始化并配置ccache
-        run: |
-          # 设置ccache环境变量
-          export CCACHE_COMPILERCHECK="none"
-          export CCACHE_BASEDIR="${{ github.workspace }}"
-          export CCACHE_NOHASHDIR="true"
-          export CCACHE_HARDLINK="true"
-          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
-          export CCACHE_MAXSIZE="${{ env.CCACHE_MAXSIZE }}"
-          
-          # 确保ccache目录存在
-          mkdir -p "$CCACHE_DIR"
-          
-          # 每次运行都重新配置缓存大小
-          echo "配置ccache缓存大小为: $CCACHE_MAXSIZE"
-          ccache -M "$CCACHE_MAXSIZE"
-          ccache -o compression=true
-          
-          # 显示初始缓存状态
-          echo "ccache初始状态:"
-          ccache -s
-          
-          # 如果缓存恢复命中，显示详细信息
-          if [ "${{ steps.ccache-restore.outputs.cache-hit }}" == 'true' ]; then
-            echo "ccache缓存命中详情:"
-            ccache -sv
-          fi
 
       - name: 添加KernelSU
         id: ksu_version
         run: |
-          # 进入内核工作目录
           cd kernel_workspace
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
             echo "正在配置SukiSU Ultra..."
             curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s builtin
             cd ./KernelSU
-            # 获取当前 Git 提交的短哈希 (8位)
             GIT_COMMIT_HASH=$(git rev-parse --short=8 HEAD)
             echo "当前提交哈希: $GIT_COMMIT_HASH"
             export KSU_VERSION=$KSU_VERSION
-            # 尝试最多 3 次获取 KernelSU API 版本号
             for i in {1..3}; do
-              # 从远程 Kbuild 中提取 KSU_API_VERSION
-              KSU_API_VERSION=$(curl -s "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/builtin/kernel/Kbuild" | 
-                # 查找第一个包含版本定义的行
-                grep -m1 "KSU_VERSION_API :=" | 
-                # 提取等号后的值
-                awk -F'= ' '{print $2}' | 
-                # 删除所有空白字符
-                tr -d '[:space:]')
-              # 如果成功获取到版本号则跳出循环，否则等待 1 秒后重试
+              KSU_API_VERSION=$(curl -s "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/builtin/kernel/Kbuild" | grep -m1 "KSU_VERSION_API :=" | awk -F'= ' '{print $2}' | tr -d '[:space:]')
               [ -n "$KSU_API_VERSION" ] && break || sleep 1
             done
-            # 如果获取失败，使用默认版本号 3.1.7
             [ -z "$KSU_API_VERSION" ] && KSU_API_VERSION="3.1.7"
-            # 将 API 版本号存储到 GitHub 环境变量
             echo "KSU_API_VERSION=$KSU_API_VERSION" >> $GITHUB_ENV
-            # 创建版本定义模板&版本格式函数: 使用获取的提交哈希和固定后缀
-            # KSU_VERSION_API: API 版本定义
-            # KSU_VERSION_FULL: 完整版本定义
             VERSION_DEFINITIONS=$'define get_ksu_version_full\nv\\$1-'"$GIT_COMMIT_HASH"$'@cctv18\nendef\n\nKSU_VERSION_API := '"$KSU_API_VERSION"$'\nKSU_VERSION_FULL := v'"$KSU_API_VERSION"$'-'"$GIT_COMMIT_HASH"$'@cctv18'
-            # 清理内核 Kbuild 中的旧版本定义
-            # 删除版本函数
             sed -i '/define get_ksu_version_full/,/endef/d' kernel/Kbuild
-            # 删除 API 版本定义
             sed -i '/KSU_VERSION_API :=/d' kernel/Kbuild
-            # 删除完整版本定义
             sed -i '/KSU_VERSION_FULL :=/d' kernel/Kbuild
-            # 在 REPO_OWNER 行后插入新版本定义
-            awk -v def="$VERSION_DEFINITIONS" '
-              # 当找到 REPO_OWNER 行时，插入版本定义并设置标记
-              /REPO_OWNER :=/ {print; print def; inserted=1; next}
-              # 打印所有行
-              1
-              # 如果未找到插入点，在文件末尾追加
-              END {if (!inserted) print def}
-            ' kernel/Kbuild > kernel/Kbuild.tmp && mv kernel/Kbuild.tmp kernel/Kbuild
-
-            # 生成自定义版本号（基于提交计数）, 失败时使用 114514
+            awk -v def="$VERSION_DEFINITIONS" '/REPO_OWNER :=/ {print; print def; inserted=1; next} 1 END {if (!inserted) print def}' kernel/Kbuild > kernel/Kbuild.tmp && mv kernel/Kbuild.tmp kernel/Kbuild
             KSU_VERSION=$(expr $(git rev-list --count main) + 37185 2>/dev/null || echo 114514)
-            # 存储版本号到 GitHub 环境变量
             echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
             echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
-
-            # 验证修改结果
-            grep -A10 "REPO_OWNER" kernel/Kbuild  # 检查插入点后的内容
-            grep "KSU_VERSION_FULL" kernel/Kbuild # 确认版本定义存在
+            grep -A10 "REPO_OWNER" kernel/Kbuild  
+            grep "KSU_VERSION_FULL" kernel/Kbuild
             echo "SukiSU版本号: v${KSU_API_VERSION}-${GIT_COMMIT_HASH}@cctv18"
           elif [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
             echo "正在配置ReSukiSU..."
             curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
             echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@cctv18"' >> ./common/arch/arm64/configs/gki_defconfig
             cd ./KernelSU
-            # 生成自定义版本号（基于提交计数）, 失败时使用 114514
             KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
-            # 存储版本号到 GitHub 环境变量
             echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
             echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
           elif [[ ${{ github.event.inputs.ksu_type }} == "ksunext" ]]; then
@@ -454,7 +373,6 @@ jobs:
             sed -i "s/KSU_VERSION_FALLBACK := 1/KSU_VERSION_FALLBACK := $KSU_VERSION/g" kernel/Kbuild
             KSU_GIT_TAG=$(curl -sL "https://api.github.com/repos/KernelSU-Next/KernelSU-Next/tags" | grep -o '"name": *"[^"]*"' | head -n 1 | sed 's/"name": "//;s/"//')
             sed -i "s/KSU_VERSION_TAG_FALLBACK := v0.0.1/KSU_VERSION_TAG_FALLBACK := $KSU_GIT_TAG/g" kernel/Kbuild
-            #为KernelSU Next添加WildKSU管理器支持
             cd ../common/drivers/kernelsu
             wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/other_patch/apk_sign.patch
             patch -p2 -N -F 3 < apk_sign.patch || true
@@ -501,8 +419,7 @@ jobs:
             cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
             cd ./common
             patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
-            #临时修复 undeclared identifier 'vma' 编译错误：把vma = find_vma(...)替换为struct vm_area_struct *vma = find_vma(...)，解决部分版本源码中vma定义缺失的问题
-            sed -i 's|vma = find_vma(mm|struct vm_area_struct *&|' ./fs/proc/task_mmu.c
+            sed -i 's|vma = find_vma(mm|struct vm_area_struct *\&|' ./fs/proc/task_mmu.c
             patch -p1 < 69_hide_stuff.patch || true
           elif [[ ${{ github.event.inputs.ksu_type }} == "ksunext" ]]; then
             echo "正在添加KernelSU Next补丁..."
@@ -519,15 +436,14 @@ jobs:
             git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
             wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/other_patch/69_hide_stuff.patch -O ./common/69_hide_stuff.patch
             cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
-            # 临时修复：修复susfs补丁日志输出（由于上游KSU把部分Makefile代码移至Kbuild中，而susfs补丁未同步修改，故需修复susfs补丁修补位点）
             PATCH_FILE="./KernelSU/10_enable_susfs_for_ksu.patch"
             if [ -f "$PATCH_FILE" ]; then
               if grep -q "a/kernel/Makefile" "$PATCH_FILE"; then
                 echo "检测到旧版 Makefile 补丁代码，正在执行修复..."
                 sed -i 's|kernel/Makefile|kernel/Kbuild|g' "$PATCH_FILE"
                 sed -i 's|^@@ .* format:.*|@@ -94,4 +94,13 @@|' "$PATCH_FILE"
-                sed -i 's|.*check-format:.*| ccflags-y += -Wno-strict-prototypes -Wno-int-conversion -Wno-gcc-compat -Wno-missing-prototypes|' "$PATCH_FILE"
-                sed -i 's|.*clang-format --dry-run.*| ccflags-y += -Wno-declaration-after-statement -Wno-unused-function -Wno-unused-variable|' "$PATCH_FILE"
+                sed -i 's|.*check-format:.*|ccflags-y += -Wno-strict-prototypes -Wno-int-conversion -Wno-gcc-compat -Wno-missing-prototypes|' "$PATCH_FILE"
+                sed -i 's|.*clang-format --dry-run.*|ccflags-y += -Wno-declaration-after-statement -Wno-unused-function -Wno-unused-variable|' "$PATCH_FILE"
                 echo "补丁修复完成！"
               else
                 echo "补丁代码已修复至 Kbuild 或不匹配，跳过修改..."
@@ -541,7 +457,6 @@ jobs:
             cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
             cd ./KernelSU
             patch -p1 < 10_enable_susfs_for_ksu.patch || true
-            #为MKSU修正susfs 2.0.0补丁
             wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/other_patch/mksu_supercalls.patch
             patch -p1 < mksu_supercalls.patch || true
             cd ../common
@@ -552,15 +467,14 @@ jobs:
             git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
             wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/other_patch/69_hide_stuff.patch -O ./common/69_hide_stuff.patch
             cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
-            # 临时修复：修复susfs补丁日志输出（由于上游KSU把部分Makefile代码移至Kbuild中，而susfs补丁未同步修改，故需修复susfs补丁修补位点）
             PATCH_FILE="./KernelSU/10_enable_susfs_for_ksu.patch"
             if [ -f "$PATCH_FILE" ]; then
               if grep -q "a/kernel/Makefile" "$PATCH_FILE"; then
                 echo "检测到旧版 Makefile 补丁代码，正在执行修复..."
                 sed -i 's|kernel/Makefile|kernel/Kbuild|g' "$PATCH_FILE"
                 sed -i 's|^@@ .* format:.*|@@ -94,4 +94,13 @@|' "$PATCH_FILE"
-                sed -i 's|.*check-format:.*| ccflags-y += -Wno-strict-prototypes -Wno-int-conversion -Wno-gcc-compat -Wno-missing-prototypes|' "$PATCH_FILE"
-                sed -i 's|.*clang-format --dry-run.*| ccflags-y += -Wno-declaration-after-statement -Wno-unused-function -Wno-unused-variable|' "$PATCH_FILE"
+                sed -i 's|.*check-format:.*|ccflags-y += -Wno-strict-prototypes -Wno-int-conversion -Wno-gcc-compat -Wno-missing-prototypes|' "$PATCH_FILE"
+                sed -i 's|.*clang-format --dry-run.*|ccflags-y += -Wno-declaration-after-statement -Wno-unused-function -Wno-unused-variable|' "$PATCH_FILE"
                 echo "补丁修复完成！"
               else
                 echo "补丁代码已修复至 Kbuild 或不匹配，跳过修改..."
@@ -651,7 +565,6 @@ jobs:
           if [[ "${{ github.event.inputs.susfs_enable }}" == "false" ]]; then
             echo "CONFIG_KSU_SUSFS=n" >> ./common/arch/arm64/configs/gki_defconfig
           fi
-          #添加对 Mountify (backslashxx/mountify) 模块的支持
           echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
           if [[ "${{ github.event.inputs.lz4kd_enable }}" == "true" ]]; then
@@ -661,16 +574,12 @@ jobs:
             echo "CONFIG_CRYPTO_LZ4KD=y" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_CRYPTO_842=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
-          # 开启O2编译优化配置
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
-          #禁用 defconfig 检查
           sed -i 's/check_defconfig//' ./common/build.config.gki
-          #跳过将uapi标准头安装到 usr/include 目录的不必要操作，节省编译时间
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
           
-          echo "CONFIG_LTO_CLANG_THIN=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LTO_CLANG_THIN=y" >> ./common/arch/arm64/configs/gki_defconfig
           
-          # --- 以下为新增的 AutoFDO 开启代码 ---
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
             echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
@@ -679,12 +588,9 @@ jobs:
         if: inputs.better_net
         run: |
           cd kernel_workspace
-          #启用  BPF 流解析器,实现高性能网络流量处理,增强网络监控和分析能力
           echo "CONFIG_BPF_STREAM_PARSER=y" >> ./common/arch/arm64/configs/gki_defconfig
-          #开启增强 Netfilter 防火墙扩展模块,支持基于地址类型的匹配规则,启用 IP 集合支持,提高防火墙规则灵活性,支持更复杂的流量过滤策略
           echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_NETFILTER_XT_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
-          #启用 IP 集框架及其多种数据结构实现,提供高效的大规模 IP 地址管理,提高防火墙规则处理效率,减少内存占用
           echo "CONFIG_IP_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_MAX=65534" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_BITMAP_IP=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -703,10 +609,8 @@ jobs:
           echo "CONFIG_IP_SET_HASH_NETPORT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_HASH_NETIFACE=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_LIST_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
-          #启用 IPv6 网络地址转换
           echo "CONFIG_IP6_NF_NAT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> ./common/arch/arm64/configs/gki_defconfig
-          #由于部分机型的vintf兼容性检测规则，在开启CONFIG_IP6_NF_NAT后开机会出现"您的设备内部出现了问题。请联系您的设备制造商了解详情。"的提示，故添加一个配置修复补丁，在编译内核时隐藏CONFIG_IP6_NF_NAT=y但不影响对应功能编译
           cd common
           wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/other_patch/config.patch
           patch -p1 -F 3 < config.patch || true
@@ -716,32 +620,13 @@ jobs:
           if [[ "${{ github.event.inputs.bbr_enable }}" != "false" ]]; then
             echo "正在添加BBR等拥塞控制算法..."
             cd kernel_workspace
-            #开启TCP拥塞控制算法控制器（必需）
             echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig
-            ################################################################################################################################
-            # BBR：基于链路容量的代表拥塞控制算法，不再使用丢包、延时等信号去衡量拥塞是否发生，而是直接对网络建模来应对、避免真实的网络拥塞；
-            # 具有高吞吐、低延迟、抗丢包的特点，但在手机上使用时由于持续探测带宽/RTT、高频计算与发包增加 CPU 和射频模块功耗，会增加耗电及发热；
-            # 且移动基站缓冲区深度通常较小（~50ms），BBR 的带宽探测阶段（ProbeRTT）过度降窗可能导致吞吐量骤降，且网络切换（WiFi→5G）时需重新
-            # 探测参数，反而增加延迟或导致速率振荡（短暂卡顿），且存在 RTT 不公平性，与基于丢包的流竞争时可能过于强势，在混合网络环境中
-            #（如 BBR + CUBIC 共存），BBR 会抢占更多其他软件的带宽，降低其他应用的公平性（如后台软件更新影响前台视频播放）。
-            # 因此，虽然BBR可以显著减少排队延迟，抗丢包能力强，带宽利用率高，但由于其会增加耗电，且易导致网络速率波动，故安卓系统默认不使用
-            # BBR拥塞算法，而是使用在吞吐量、稳定性、兼容性、能效之间取得最佳平衡的CUBIC算法。在开启BBR前，请考虑自己是否真的有使用BBR的必要。
-            ################################################################################################################################
             echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
-            #CUBIC：安卓的默认TCP拥塞控制算法，在吞吐量、稳定性、兼容性、能效之间取得最佳平衡，具有高兼容性与公平性、抗网络波动性强、低计算开销的特点，是绝大部分移动场景的优先选择
             echo "CONFIG_TCP_CONG_CUBIC=y" >> ./common/arch/arm64/configs/gki_defconfig
-            #VEGAS：基于时延的拥塞控制算法之一，将回路响应时间（Round Trip Time，RTT）增加视为出现拥塞，增加时增大拥塞窗口，减小时减小拥塞窗口
             echo "CONFIG_TCP_CONG_VEGAS=y" >> ./common/arch/arm64/configs/gki_defconfig
-            #New Vegas：Vegas 算法的改进版，优化了 RTT 测量和竞争公平性，可以更准确地检测拥塞，与 Reno/CUBIC 共存能力提升
             echo "CONFIG_TCP_CONG_NV=y" >> ./common/arch/arm64/configs/gki_defconfig
-            #Westwood+：基于带宽估计（ACK 到达率）动态设置拥塞窗口和慢启动阈值；快速恢复，适合无线网络（区分拥塞丢包与无线丢包）
             echo "CONFIG_TCP_CONG_WESTWOOD=y" >> ./common/arch/arm64/configs/gki_defconfig
-            #HTCP：一种基于损失的算法，使用 AIMD 来控制拥塞窗口，根据 RTT 动态调整增长因子，结合延迟和丢包信号，针对高延迟的高速网络进行优化
             echo "CONFIG_TCP_CONG_HTCP=y" >> ./common/arch/arm64/configs/gki_defconfig
-            #brutal：一种通过主动探测 + 激进抢占最大化吞吐量的拥塞算法，无拥塞窗口上限，轻度丢包（<20%）不降窗，避免类似 BBR 的 ProbeRTT 阶段，
-            #持续维持高发送速率，与 Reno/CUBIC 共存时，Brutal 可通过高频发包抢占 90%+ 带宽，适用于高丢包弱网环境（如公共 Wi-Fi、蜂窝网络）及
-            #直播推流、云游戏上行链路等需优先保证吞吐量而非延迟敏感的场景，提升弱网吞吐性能，对抗运营商 QoS 限速。但由于TCP Brutal 仅在应用程序
-            #对每个 TCP 连接设置带宽参数之后才能正常工作，绝大部分安卓应用都不支持该操作，故请勿将 TCP Brutal 设置成默认拥塞控制算法。
             echo "CONFIG_TCP_CONG_BRUTAL=y" >> ./common/arch/arm64/configs/gki_defconfig
             if [[ "${{ github.event.inputs.bbr_enable }}" == "default" ]]; then
               echo "正在将BBR设为默认拥塞控制算法..."
@@ -784,8 +669,8 @@ jobs:
           sudo sed -i "s/-4k/$ESCAPED_SUFFIX/g" ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
-      
-      - name: 构建内核 (安全且极致优化版)
+
+      - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
           export PATH="/usr/lib/ccache:$PATH"
@@ -794,119 +679,72 @@ jobs:
           CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
           CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
           LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
+          
           echo "编译器信息:"
           echo "Clang版本: $CLANG_VERSION"
           echo "LLD版本: $LLD_VERSION"
           pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
           
-          # --- Ccache 配置 ---
           export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
-          export CCACHE_COMPILERCHECK="none"
-          export CCACHE_BASEDIR="${{ github.workspace }}"
-          export CCACHE_NOHASHDIR="true"
-          export CCACHE_HARDLINK="true"
-          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
-          export CCACHE_MAXSIZE="10G"
-          echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
-          # --- 时间劫持配置 (用于绕过版本号校验) ---
           cd kernel_workspace/common
-          wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
-          wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfaketimeMT.so
-          chmod 777 ./*.so
-          export FAKESTAT="2025-05-25 12:00:00"
-          export FAKETIME="@2025-05-25 13:00:00"
-          echo "FAKESTAT=$FAKESTAT" >> $GITHUB_ENV
-          echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
-          SO_DIR=$(pwd)
-          export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
           
-          # 创建编译器包装器
-          echo '#!/bin/bash' > cc-wrapper
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
-          echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
-          echo 'ccache clang "$@"' >> cc-wrapper
-          
-          # 创建链接器包装器
-          echo '#!/bin/bash' > ld-wrapper
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
-          echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
-          echo 'ld.lld "$@"' >> ld-wrapper
-          chmod +x cc-wrapper ld-wrapper
+          # 异步清理磁盘空间
+          sudo rm -rf /usr/share/dotnet &
+          sudo rm -rf /usr/local/lib/android &
+          sudo rm -rf /opt/ghc &
+          sudo rm -rf /opt/hostedtoolcache/CodeQL &
           
           export KBUILD_BUILD_TIMESTAMP="${KERNEL_TIME}"
           
-          # 清理运行库释放空间
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL &
-          
-          # ==========================================
-          # 核心编译参数区 (已清理幽灵空格并重新排版)
-          # ==========================================
-          
-          # 1. Polly 优化参数 (已安全限制)
-          POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-parallel=false -mllvm -polly-run-inliner=true -mllvm -polly-ast-use-context"
-          
-          # 2. 机器学习与高级 LLVM 特性参数
+          # 核心编译参数区
+          POLLY_FLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-run-inliner=true -mllvm -polly-ast-use-context -mllvm -polly-tiling=true -mllvm -polly-default-tile-size=64"
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
-          
-          # 3. 编译器总体 Flags
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS $POLLY_FLAGS -Wno-error"
+          OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
           
-          # 3.5 注入 AutoFDO 参数
+          # 🚨 核心修改：为链接器 LDFLAGS 注入 ThinLTO 缓存配置（限制缓存大小为5G防爆盘）
+          OPT_LDFLAGS="$OPT_LDFLAGS"
+          
+          # 注入 AutoFDO 参数
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
-            echo "--- 正在将 AutoFDO Profile 注入编译器 ---"
+            echo "--- 正在将 AutoFDO Profile注入编译器与链接器 ---"
             AFDO_FILE="$WORKDIR/kernel_workspace/kernel_aarch64.afdo"
-            # 方案A：通过标准 Kbuild 变量传入
             export CLANG_AUTOFDO_PROFILE="$AFDO_FILE"
-            # 方案B：强制写入 KCFLAGS 以防 GKI 脚本屏蔽
             OPT_KCFLAGS="$OPT_KCFLAGS -fprofile-sample-use=$AFDO_FILE"
+            OPT_LDFLAGS="$OPT_LDFLAGS -Wl,-mllvm,-sample-profile-file=$AFDO_FILE"
+            LTO_ML_FLAGS=$(echo "$ML_FLAGS" | sed 's/-mllvm /-Wl,-mllvm,/g')
+            OPT_LDFLAGS="$OPT_LDFLAGS $LTO_ML_FLAGS"
           fi
           
-          # 4. 链接器总体 Flags 
-          OPT_LDFLAGS="--icf=safe --gc-sections --sort-section=alignment -Wl,-O3 -Wl,-mllvm,-polly Wl,-plugin-opt=-preserve-all-symbols"
-          
-          # ==========================================
           # Oplus KMI/ABI 保护配置
-          # ==========================================
-          # 指定 Oplus 专属的 KMI 符号表
           OPLUS_KMI_LIST="android/abi_gki_aarch64_oplus"
-          
           if [ -f "$OPLUS_KMI_LIST" ]; then
-            echo "✅ 成功检测到 Oplus 专属 KMI 符号表: $OPLUS_KMI_LIST"
-            # KMI_SYMBOL_LIST: 限制仅导出列表中的符号
-            # KMI_SYMBOL_LIST_STRICT=1: 开启严格校验，符号缺失或 CRC 变更直接阻断编译
+            echo "✅ 检测到 KMI 符号表: $OPLUS_KMI_LIST"
             export ABI_FLAGS="KMI_SYMBOL_LIST=$OPLUS_KMI_LIST KMI_SYMBOL_LIST_STRICT=1"
           else
-            echo "⚠️ 未在源码的 android/ 目录下找到 $OPLUS_KMI_LIST！"
-            echo "将回退到无严格保护模式编译，请检查源码树是否包含该文件。"
             export ABI_FLAGS=""
           fi
           
-          # ==========================================
-          # 开始编译
-          # ==========================================
-          
-          # 阶段一：仅生成配置 (无需附加任何编译 Flags)
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
+            HOSTLD=ld.lld O=out \
             gki_defconfig
           
-          # 阶段二：使用极致优化参数及 Oplus ABI 保护编译 Image
           echo "--- 开始编译内核镜像 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
+            HOSTLD=ld.lld O=out \
             KCFLAGS="$OPT_KCFLAGS" LDFLAGS="$OPT_LDFLAGS" \
             $ABI_FLAGS \
             Image
           
-          # 编译后空间及状态检查
+          echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "内核编译完成！"
-          ccache -s
+          
+          echo "编译后空间:"
           df -h
-         
+
       - name: 应用KPM并修补内核
         run: |
           if [[ ${{ github.event.inputs.kpm_enable }} == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
