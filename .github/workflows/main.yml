@@ -124,6 +124,12 @@ on:
         required: true
         type: boolean
         default: 'true'
+      abi_kmi_check:
+        description: '是否开启 ABI/KMI 兼容性验证 (注意: 开启后会生成DWARF调试信息，显著增加编译时间与空间消耗)'
+        required: true
+        type: boolean
+        default: 'false'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -252,7 +258,7 @@ jobs:
           sudo rm -rf /var/lib/man-db/auto-update &&
           
           sudo apt update &&
-          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache &
+          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache abigail-tools libxml2-utils &
           
           echo "正在克隆源码仓库..."
           aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_16.0.0_oneplus_13_6.6.89.zip -o common.zip && 
@@ -583,6 +589,14 @@ jobs:
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
             echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
+          
+          # 🚨 可选：开启 DWARF 调试信息以支持 ABI/KMI 提取
+          if [[ "${{ github.event.inputs.abi_kmi_check }}" == "true" ]]; then
+            echo "--- 已开启 ABI/KMI 验证，注入 DWARF 调试配置 ---"
+            echo "CONFIG_DEBUG_INFO=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_DEBUG_INFO_DWARF4=y" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
@@ -670,6 +684,44 @@ jobs:
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
 
+      - name: 提取与验证 ABI/KMI 兼容性
+        if: inputs.abi_kmi_check == 'true'
+        run: |
+          cd kernel_workspace/common
+          echo "--- 开始提取当前内核 ABI (vmlinux) ---"
+          # abidw 需要读取带有 DWARF 的 vmlinux
+          abidw --linux-tree out --out-file out/current_abi.xml out/vmlinux
+          
+          OPLUS_KMI_LIST="android/abi_gki_aarch64_oplus"
+          # 尝试查找 Oplus/Android 基准 ABI XML 文件
+          REFERENCE_ABI=$(find android -name "abi_gki_aarch64*.xml" | head -n 1)
+          
+          if [ -n "$REFERENCE_ABI" ] && [ -f "$REFERENCE_ABI" ]; then
+              echo "✅ 找到基准 ABI 文件: $REFERENCE_ABI"
+              echo "--- 开始对比 ABI/KMI 差异 ---"
+              # 对比并过滤非 KMI 白名单中的符号
+              abidiff --kmi-whitelist $OPLUS_KMI_LIST $REFERENCE_ABI out/current_abi.xml > out/abi_diff.log || true
+              
+              if [ -s out/abi_diff.log ]; then
+                  echo "⚠️ 发现 ABI/KMI 变更！差异内容如下："
+                  cat out/abi_diff.log
+              else
+                  echo "✅ ABI/KMI 校验通过，与基线完美一致！"
+              fi
+          else
+              echo "⚠️ 未在源码树找到基准 ABI XML 文件，跳过差异对比，仅保存当前 ABI 状态(current_abi.xml)。"
+          fi
+
+      - name: 上传 ABI/KMI 验证报告
+        if: always() && inputs.abi_kmi_check == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ABI_KMI_Reports
+          path: |
+            ${{ github.workspace }}/kernel_workspace/common/out/current_abi.xml
+            ${{ github.workspace }}/kernel_workspace/common/out/abi_diff.log
+
+
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
@@ -727,6 +779,14 @@ jobs:
             export ABI_FLAGS=""
           fi
           
+          # 动态决定编译目标
+          if [[ "${{ github.event.inputs.abi_kmi_check }}" == "true" ]]; then
+            BUILD_TARGETS="vmlinux Image modules"
+            echo "--- 开启 ABI 验证，将编译目标设置为: $BUILD_TARGETS ---"
+          else
+            BUILD_TARGETS="Image"
+          fi
+          
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             HOSTLD=ld.lld O=out \
@@ -737,13 +797,14 @@ jobs:
             HOSTLD=ld.lld O=out \
             KCFLAGS="$OPT_KCFLAGS" LDFLAGS="$OPT_LDFLAGS" \
             $ABI_FLAGS \
-            Image
+            $BUILD_TARGETS
           
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "内核编译完成！"
           
           echo "编译后空间:"
           df -h
+
 
       - name: 应用KPM并修补内核
         run: |
