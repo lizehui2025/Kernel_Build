@@ -736,7 +736,7 @@ jobs:
           echo "--- 开始编译内核镜像 ---"
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             HOSTLD=ld.lld O=out \
-            KCFLAGS="$OPT_KCFLAGS" LDFLAGS="$OPT_LDFLAGS" \
+            KCFLAGS="$OPT_KCFLAGS -w" LDFLAGS="$OPT_LDFLAGS" \
             $ABI_FLAGS \
             $BUILD_TARGETS
           
