@@ -156,6 +156,27 @@ jobs:
           
           echo "Configuration check passed."
 
+      - name: Deep Clean Runner
+        run: |
+          echo "Starting deep clean..."
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet      
+          sudo rm -rf /opt/ghc               
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/share/swift
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo docker image prune --all --force
+          echo "Deep clean finished. Current disk space:"
+          df -h /
+
+      - name: Set Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 16
+
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
         with:
@@ -165,11 +186,7 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
-
-      - name: 配置 Swap 空间 (防止编译内存溢出)
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 16
+          remove-docker-images: 'true'
 
       - name: Set REPO_MANIFEST (设置对应机型配置文件)
         run: |
