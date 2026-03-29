@@ -158,7 +158,7 @@ jobs:
       - name: 配置 Swap 空间 (防止编译内存溢出)
         uses: pierotofy/set-swap-space@master
         with:
-          swap-size-gb: 24
+          swap-size-gb: 16
 
       - name: Set REPO_MANIFEST (设置对应机型配置文件)
         run: |
