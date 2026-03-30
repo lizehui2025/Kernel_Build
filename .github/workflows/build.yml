@@ -172,15 +172,10 @@ jobs:
           echo "Deep clean finished. Current disk space:"
           df -h /
 
-      - name: Set Swap Space
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 16
-
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 8192
+          root-reserve-gb: 16
           temp-reserve-mb: 2048
           remove-dotnet: 'true'
           remove-android: 'true'
