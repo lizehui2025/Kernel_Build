@@ -172,17 +172,10 @@ jobs:
           echo "Deep clean finished. Current disk space:"
           df -h /
 
-      - name: Maximize Build Space
-        uses: easimon/maximize-build-space@master
+      - name: 配置 Swap 空间 (防止编译内存溢出)
+        uses: pierotofy/set-swap-space@master
         with:
-          root-reserve-mb: 8192
-          temp-reserve-mb: 2048
-          swap-size-gb: 16
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
+          swap-size-gb: 24
 
       - name: Set REPO_MANIFEST (设置对应机型配置文件)
         run: |
