@@ -63,7 +63,7 @@ on:
         type: choice
         default: 'zyc_clang'
         options:
-          - 'zyc_clang'
+          - 'clang19'
           - 'neutron'
           - 'aosp_clang'
           - 'clang20'
@@ -339,15 +339,24 @@ jobs:
             unzip -q build-tools.zip &&
             rm -rf build-tools.zip &
 
-          elif [[ ${{ github.event.inputs.clang_version }} == "zyc_clang" ]]; then
-            echo "获取 ZyCromerZ Clang 19 (Oryon 支持)..."
-            mkdir -p zyc-clang
-            aria2c -s16 -x16 -k1M "https://github.com/ZyCromerZ/Clang/releases/download/19.0.0git-20240723-release/Clang-19.0.0git-20240723.tar.gz" -o zyc-clang.tar.gz
-            tar -C zyc-clang -zxf zyc-clang.tar.gz
-            rm -rf zyc-clang.tar.gz &
-            echo "获取 CodeLinaro/Qualcomm Build Tools..."
-            git clone --depth=1 -b ks-kernel.lnx.4.0.r1-rel https://git.codelinaro.org/clo/la/kernel/prebuilts/build-tools.git build-tools &
-
+          elif [[ ${{ github.event.inputs.clang_version }} == "clang19" ]]; then
+          echo "正在克隆llvm-clang19工具链..." &&
+          mkdir -p clang19 &&
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip &&
+          unzip -q clang.zip -d clang19 &&
+          rm -rf clang.zip &
+          
+          echo "正在克隆Rust 1.82.0工具链..." &&
+          mkdir -p rust &&
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
+          unzip -q rust.zip -d rust &&
+          rm -rf rust.zip &
+          
+          echo "正在克隆构建工具..." &&
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip &&
+          unzip -q build-tools.zip &&
+          rm -rf build-tools.zip &
+          
           elif [[ ${{ github.event.inputs.clang_version }} == "neutron" ]]; then
             echo "获取 Neutron Clang..."
             mkdir -p neutron-clang
