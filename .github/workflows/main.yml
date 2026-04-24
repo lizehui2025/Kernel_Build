@@ -757,7 +757,7 @@ jobs:
           if [[ "${{ github.event.inputs.clang_version }}" == "clang18" ]]; then
             echo "EXTRA_CFLAGS=-march=armv9-a+crypto+dotprod" >> $GITHUB_ENV
           else
-            echo "EXTRA_CFLAGS=-mcpu=oryon-1 -fno-strict-aliasing -fno-delete-null-pointer-checks" >> $GITHUB_ENV
+            echo "EXTRA_CFLAGS=-mcpu=oryon -fno-strict-aliasing -fno-delete-null-pointer-checks" >> $GITHUB_ENV
           fi
           cd kernel_workspace/common
           cat >> arch/arm64/configs/gki_defconfig << 'EOF'
