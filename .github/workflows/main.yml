@@ -84,12 +84,6 @@ on:
         required: true
         type: boolean
         default: 'false'
-        
-      enable_hymo:
-        description: "添加Hymo实现(高性能混合挂载元模块，该选项与SuSFS冲突)"
-        required: true
-        default: 'false'
-        type: boolean
 
       kpm_enable:
         description: '是否开启kpm(builtin-使用(re)sukisu内置kpm, kpn-使用独立kpm实现(支持任意KSU/面具环境); 不需要可保持默认关闭)'
@@ -149,18 +143,6 @@ on:
 
       adios_enable:
         description: '是否启用ADIOS IO调度器支持(提升IO读写性能)'
-        required: true
-        type: boolean
-        default: 'true'
-        
-      f2fs_opt:
-        description: 'F2FS 优化 (提升闪存性能)'
-        required: true
-        type: boolean
-        default: 'false'
-
-      unicode_fix:
-        description: '开启 Unicode Bypass 修复 (防路径穿越保护)'
         required: true
         type: boolean
         default: 'true'
@@ -606,15 +588,6 @@ jobs:
           cp ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
           patch -p1 -F 3 < lz4kd.patch || true
       
-      - name: 应用HymoFS补丁
-        if: inputs.enable_hymo
-        run: |
-          echo "正在添加HymoFS补丁…"
-          cd kernel_workspace/common
-          wget https://raw.githubusercontent.com/Anatdx/HymoFS/refs/heads/android15_6.6/patch/hymofs.patch
-          patch -p1 -F 3 < hymofs.patch
-          echo "CONFIG_HYMOFS=y" >> ./arch/arm64/configs/gki_defconfig
-      
       - name: 添加SUSFS 配置项
         if: inputs.susfs_enable
         run: |
@@ -819,30 +792,6 @@ jobs:
           CONFIG_NO_HZ_IDLE=y
           EOF
 
-      - name: 应用 Unicode Bypass 修复
-        if: inputs.unicode_fix
-        working-directory: kernel_workspace/common
-        run: |
-          PATCH_URL="https://github.com/TheWildJames/kernel_patches/raw/main/common/unicode_bypass_fix_6.1+.patch"
-          wget -qO /tmp/ub_fix.patch "$PATCH_URL" 2>/dev/null && \
-            patch -p1 --forward < /tmp/ub_fix.patch || true
-
-      - name: F2FS 优化
-        if: inputs.f2fs_opt
-        working-directory: kernel_workspace
-        run: |
-          echo "Enabling F2FS optimizations..."
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_F2FS_FS=y
-          CONFIG_F2FS_STAT_FS=y
-          CONFIG_F2FS_FS_XATTR=y
-          CONFIG_F2FS_FS_POSIX_ACL=y
-          CONFIG_F2FS_FS_SECURITY=y
-          CONFIG_F2FS_FS_COMPRESSION=y
-          CONFIG_F2FS_FS_LZO=y
-          CONFIG_F2FS_FS_LZ4=y
-          CONFIG_F2FS_FS_ZSTD=y
-          EOF
 
       - name: 启用 WireGuard
         if: inputs.wireguard
@@ -917,13 +866,6 @@ jobs:
           WLEOF
           fi
 
-      - name: Set Kernel name (设置内核名称)
-        run: |
-          cd kernel_workspace
-          echo "内核后缀: $DEFAULT_SUFFIX"
-          ESCAPED_SUFFIX=$(printf '%s\n' "$DEFAULT_SUFFIX" | sed 's:[\/&]:\\&:g')
-          sudo sed -i "s/-4k/$ESCAPED_SUFFIX/g" ./common/arch/arm64/configs/gki_defconfig
-          sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
       - name: 构建内核
         run: |
