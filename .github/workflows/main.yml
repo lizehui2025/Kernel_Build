@@ -61,7 +61,7 @@ on:
         description: '选择编译内核的Clang版本'
         required: true
         type: choice
-        default: 'zyc_clang'
+        default: 'clang19'
         options:
           - 'clang19'
           - 'neutron'
@@ -164,12 +164,6 @@ on:
         required: true
         type: boolean
         default: 'false'
-        
-      wakelock_blocker:
-        description: '开启 Wakelock Blocker (减少待机耗电)'
-        required: true
-        type: boolean
-        default: 'true'
 
       autofdo_enable:
         description: '是否启用 AutoFDO (使用 Google 官方预编译 .afdo 文件优化)'
@@ -794,28 +788,6 @@ jobs:
           CONFIG_LRNG_CONTINUOUS_COMPRESSION_ENABLED=y
           EOF
           
-      - name: 启用 Wakelock Blocker
-        if: inputs.wakelock_blocker
-        working-directory: kernel_workspace/common
-        run: |
-          echo "Enabling Wakelock Blocker..."
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_PM_WAKELOCKS=y
-          CONFIG_PM_WAKELOCKS_GC=y
-          CONFIG_PM_WAKELOCKS_LIMIT=100
-          EOF
-          WAKELOCK_C="kernel/power/wakelock.c"
-          if [ -f "$WAKELOCK_C" ]; then
-            cat >> "$WAKELOCK_C" << 'WLEOF'
-          /* wakelock blocker list */
-          static const char * const blocked_wakelocks[] = {
-              "WLAN_pm_wlock",
-              "IPA_WS",
-              "qcom_rx_wakelock",
-              "event0",
-          };
-          WLEOF
-          fi
 
       - name: 🔧 Set Kernel name (设置内核名称)
         run: |
@@ -868,7 +840,7 @@ jobs:
           # 核心编译参数区
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
-          OPT_LDFLAGS="--icf=all --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
+          OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
           
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
             echo "--- 正在将 AutoFDO Profile注入编译器与链接器 ---"
