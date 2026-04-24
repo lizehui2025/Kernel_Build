@@ -533,7 +533,25 @@ jobs:
             patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
             patch -p1 -N -F 3 < 69_hide_stuff.patch || true
           fi
-          
+
+
+      - name: 🔧 Setup Patches | 配置补丁
+        run: |
+          cd kernel_workspace
+
+          echo "⬇️ 克隆所需补丁..."
+
+          git clone https://github.com/mrcxlinux/kernel_patches.git
+
+          echo "📝 复制补丁文件..."
+
+          cd ./common
+
+          cp ../kernel_patches/common/EnablePOLLY.patch ./
+
+          echo "📦 正在启用POLLY支持..."
+          git apply -p1 < EnablePOLLY.patch || true
+
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
         run: |
@@ -604,7 +622,8 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
-          
+
+          echo "CONFIG_LLVM_POLLY=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y" >> ./common/arch/arm64/configs/gki_defconfig
           
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
@@ -740,38 +759,30 @@ jobs:
           CONFIG_NO_HZ_IDLE=y
           EOF
 
-
-      - name: 启用 Full Netfilter
-        if: inputs.netfilter_full
-        working-directory: kernel_workspace
-        run: |
-          echo "Enabling full Netfilter support..."
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_NF_CONNTRACK=y
-          CONFIG_NF_CONNTRACK_MARK=y
-          CONFIG_NF_CONNTRACK_ZONES=y
-          CONFIG_NF_CONNTRACK_TIMESTAMP=y
-          CONFIG_NF_CONNTRACK_EVENTS=y
-          CONFIG_NF_CONNTRACK_TIMEOUT=y
-          CONFIG_NF_CONNTRACK_LABELS=y
-          CONFIG_NF_NAT=y
-          CONFIG_NF_NAT_MASQUERADE=y
-          CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y
-          CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
-          CONFIG_NETFILTER_XT_MATCH_CONNLIMIT=y
-          CONFIG_NETFILTER_XT_MATCH_STATE=y
-          CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y
-          CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
-          EOF
-
       - name: 启用 LRNG v59
         if: inputs.lrng_enable
         working-directory: kernel_workspace/common
         run: |
           echo "Enabling LRNG (Linux Random Number Generator) v59..."
-          git clone --depth=1 https://github.com/smuellerDD/lrng.git /tmp/lrng_src
-          cp -r /tmp/lrng_src/drivers/char/lrng/* drivers/char/lrng/
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
+           # 1. 克隆源码
+            git clone --depth=1 https://github.com/smuellerDD/lrng.git /tmp/lrng_src
+            
+            # 2. 创建目标文件夹
+            mkdir -p drivers/char/lrng
+            
+            # 3. 修复复制路径：直接从仓库根目录复制所有文件
+            cp -r /tmp/lrng_src/* drivers/char/lrng/
+            
+            # 4. (关键修复) 注入 Makefile 和 Kconfig，让内核编译器能“看”到它
+            if ! grep -q "lrng/Kconfig" drivers/char/Kconfig; then
+              sed -i '$i source "drivers/char/lrng/Kconfig"' drivers/char/Kconfig
+            fi
+            if ! grep -q "CONFIG_LRNG" drivers/char/Makefile; then
+              echo 'obj-$(CONFIG_LRNG) += lrng/' >> drivers/char/Makefile
+            fi
+
+            # 5. 写入 Defconfig
+            cat >> $CONF << 'EOF'
           CONFIG_LRNG=y
           CONFIG_LRNG_SHA256=y
           CONFIG_LRNG_COLLECTION_SIZE=1024
@@ -781,6 +792,7 @@ jobs:
           CONFIG_LRNG_IRQ=y
           CONFIG_LRNG_CONTINUOUS_COMPRESSION_ENABLED=y
           EOF
+          fi
 
       - name: 启用 Wakelock Blocker
         if: inputs.wakelock_blocker
