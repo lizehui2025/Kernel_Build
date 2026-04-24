@@ -112,12 +112,6 @@ on:
         required: true
         type: boolean
         default: 'false'
-
-      fengchi:
-        description: '开启 风驰(Fengchi) 调度优化'
-        required: true
-        type: boolean
-        default: 'true'
         
       schedutil_opt:
         description: '开启 SchedUtil 优化 (提升 CPU 调度器响应)'
@@ -165,18 +159,6 @@ on:
         type: boolean
         default: 'true'
         
-      netfilter_full:
-        description: '完整 Netfilter 支持 (conntrack, NAT, hashlimit)'
-        required: true
-        type: boolean
-        default: 'false'
-        
-      wireguard:
-        description: '开启 WireGuard VPN 支持'
-        required: true
-        type: boolean
-        default: 'false'
-        
       lrng_enable:
         description: '开启 LRNG v59 (提供更好的加密/游戏随机数熵)'
         required: true
@@ -209,28 +191,9 @@ jobs:
       KEEP_ORIGINAL_SETTINGS: ${{ github.event.inputs.keep_original_settings }}
       CUSTOM_KERNEL_SUFFIX:   ${{ github.event.inputs.custom_kernel_suffix }}
       CUSTOM_KERNEL_TIME:     ${{ github.event.inputs.custom_kernel_time }}
-      ENABLE_HYMO:            ${{ github.event.inputs.enable_hymo }}
     outputs:
       ksuver: ${{ steps.ksu_version.outputs.ksuver }}
     steps:
-      - name: Check for conflicting modules (SUSFS & HYMO)
-        shell: bash
-        run: |
-          echo "Checking input conflicts..."
-          
-          SUSFS="${{ github.event.inputs.susfs_enable }}"
-          HYMO="${{ github.event.inputs.enable_hymo }}"
-          
-          echo "SUSFS: $SUSFS"
-          echo "HYMO: $HYMO"
-          
-          if [[ "$SUSFS" == "true" && "$HYMO" == "true" ]]; then
-            echo "::error::Configuration Error: You cannot enable both SUSFS and HYMO at the same time!"
-            exit 1
-          fi
-          
-          echo "Configuration check passed."
-
       - name: Deep Clean Runner
         run: |
           echo "Starting deep clean..."
@@ -252,7 +215,7 @@ jobs:
         with:
           swap-size-gb: 24
 
-      - name: Set REPO_MANIFEST (设置对应机型配置文件)
+      - name: ⚙️ Set REPO_MANIFEST (设置对应机型配置文件)
         run: |
           case "${{ env.DEVICES_NAME }}" in
             oneplus_ace5_pro)
@@ -276,62 +239,73 @@ jobs:
               echo "SCHED_FILE=oneplus_pad_2_pro_b" >> $GITHUB_ENV
               ;;
             oneplus_ace5_ultra)
-              echo "REPO_MANIFEST=mt6991_v_15.0.2_ace5_ultra" >> $GITHUB_ENV
-              echo "SCHED_FILE=oneplus_ace5_ultra" >> $GITHUB_ENV
+              echo "REPO_MANIFEST=mt6991_b_16.0.0_oneplus_ace5_ultra" >> $GITHUB_ENV
+              echo "SCHED_FILE=oneplus_ace5_ultra_b" >> $GITHUB_ENV
               ;;
             realme_GT7)
-              echo "REPO_MANIFEST=mt6991_v_15.0.2_ace5_ultra" >> $GITHUB_ENV
-              echo "SCHED_FILE=oneplus_ace5_ultra" >> $GITHUB_ENV
+              echo "REPO_MANIFEST=mt6991_b_16.0.0_oneplus_ace5_ultra" >> $GITHUB_ENV
+              echo "SCHED_FILE=oneplus_ace5_ultra_b" >> $GITHUB_ENV
               ;;
             realme_GT7pro)
-              echo "SCHED_FILE=none" >> $GITHUB_ENV
+              echo "IMAGENAME=Image_Rm_GT_7_Pro" >> $GITHUB_ENV
+              echo "SCHED_FILE=oneplus_ace_6" >> $GITHUB_ENV
               ;;
             realme_GT7pro_Speed)
-              echo "SCHED_FILE=none" >> $GITHUB_ENV
+              echo "IMAGENAME=Image_Rm_GT_7_Pro_Speed" >> $GITHUB_ENV
+              echo "SCHED_FILE=oneplus_ace_6" >> $GITHUB_ENV
               ;;
             realme_GT8)
-              echo "SCHED_FILE=none" >> $GITHUB_ENV
+              echo "IMAGENAME=Image_Rm_GT_8" >> $GITHUB_ENV
+              echo "SCHED_FILE=oneplus_ace_6" >> $GITHUB_ENV
           esac
-          if [ "${{ env.KEEP_ORIGINAL_SETTINGS }}" = "true" ] && [ -z "${{ github.event.inputs.custom_kernel_suffix }}" ]; then
+          if [ -z "${{ github.event.inputs.custom_kernel_suffix }}" ]; then
             case "${{ env.DEVICES_NAME }}" in
-            oneplus_pad_2_pro)
-              echo 'DEFAULT_SUFFIX=-android15-8-g5a0ffb447c1d-ab13771415-4k' >> $GITHUB_ENV
+             oneplus_pad_2_pro)
+                DEFAULT_SUFFIX='-android15-8-g096cdb6ecefc-ab14358676-4k'
               ;;
-            oneplus_13)
-              echo 'DEFAULT_SUFFIX=-android15-8-gf4dc45704e54-abogki446052083-4k' >> $GITHUB_ENV
+            oneplus_ace5_ultra)
+                DEFAULT_SUFFIX='-android15-8-ge6068c2aa11d-abogki454747580-4k'
               ;;
-            realme_GT7)
-              echo 'DEFAULT_SUFFIX=-android15-8-gd43086512890-abogki423825152-4k' >> $GITHUB_ENV
+            oneplus_13 | oneplus_13t | oneplus_ace5_pro | oneplus_ace_6 | realme_GT7 | realme_GT7pro_Speed | realme_GT8)
+                DEFAULT_SUFFIX='-android15-8-g7e1f3c083cc6-abogki467167594-4k'
               ;;
-            oneplus_ace5_pro | oneplus_ace_6 | oneplus_13t | oneplus_ace5_ultra | realme_GT7pro_Speed | realme_GT7pro | realme_GT8)
-              echo 'DEFAULT_SUFFIX=-android15-8-g29d86c5fc9dd-abogki428889875-4k' >> $GITHUB_ENV
+            realme_GT7pro)
+                DEFAULT_SUFFIX='-android15-8-gf4dc45704e54-abogki446052083-4k'
               ;;
-            esac
-            echo "使用原官核名称：${{ env.DEFAULT_SUFFIX }}"
+          esac
+            echo "DEFAULT_SUFFIX=$DEFAULT_SUFFIX" >> $GITHUB_ENV
+            echo "使用原官核名称：$DEFAULT_SUFFIX"
           else
+              # 验证用户输入是否以 - 开头
+              if [[ "${{ github.event.inputs.custom_kernel_suffix }}" != -* ]]; then
+                echo "::warning::自定义内核名称请以 - 开头"
+                echo "示例：-android15-8-g096cdb6ecefc-ab14358676-4k"
+              fi
             echo "使用自定义名称: ${{ github.event.inputs.custom_kernel_suffix }}"
             echo "DEFAULT_SUFFIX=${{ github.event.inputs.custom_kernel_suffix }}" >> $GITHUB_ENV
           fi
-          if [ "${{ env.KEEP_ORIGINAL_SETTINGS }}" = "true" ] && [ -z "${{ github.event.inputs.custom_kernel_time }}" ]; then
+          if [ -z "${{ github.event.inputs.custom_kernel_time }}" ]; then
             case "${{ env.DEVICES_NAME }}" in
               oneplus_pad_2_pro)
-                echo 'KERNEL_TIME=Fri Jul 11 22:46:09 UTC 2025' >> $GITHUB_ENV
+                  KERNEL_TIME='Tue Oct 28 09:04:21 UTC 2025'
                 ;;
-              oneplus_13)
-                echo 'KERNEL_TIME=Fri Sep 19 06:13:40 UTC 2025' >> $GITHUB_ENV
+              oneplus_ace5_ultra)
+                  KERNEL_TIME='Tue Jul 1 19:48:18 UTC 2025'
                 ;;
-              realme_GT7)
-                echo 'KERNEL_TIME=Tue Jun 10 12:12:23 UTC 2025' >> $GITHUB_ENV
+              oneplus_13 | oneplus_13t | oneplus_ace5_pro | oneplus_ace_6 | realme_GT7 | realme_GT7pro_Speed | realme_GT8)
+                  KERNEL_TIME='Mon Dec 8 04:00:43 UTC 2025'
                 ;;
-              oneplus_ace5_pro | oneplus_ace_6 | oneplus_13t | oneplus_ace5_ultra | realme_GT7pro_Speed | realme_GT7pro | realme_GT8)
-                echo 'KERNEL_TIME=Tue Jul  1 19:48:18 UTC 2025' >> $GITHUB_ENV
+              realme_GT7pro)
+                  KERNEL_TIME='Fri Sep 19 06:13:40 UTC 2025'
                 ;;
             esac
-            echo "使用官核时间: ${{ env.KERNEL_TIME }}"
+            echo "KERNEL_TIME=$KERNEL_TIME" >> $GITHUB_ENV
+            echo "使用官核时间：$KERNEL_TIME"
           else
             echo "使用自定义构建时间: ${{ github.event.inputs.custom_kernel_time }}"
             echo "KERNEL_TIME=${{ github.event.inputs.custom_kernel_time }}" >> $GITHUB_ENV
           fi
+
 
       - name: 安装环境依赖+初始化源码仓库及工具链
         run: |
@@ -734,32 +708,6 @@ jobs:
           CONFIG_ZRAM_MEMORY_TRACKING=y
           EOF
 
-      - name: 应用 Fengchi (HMBIRD) SCHED 补丁
-        if: inputs.fengchi
-        run: |
-          cd kernel_workspace/common
-          if [ -d "kernel/sched/hmbird" ]; then
-            echo "✅ Fengchi (HMBIRD) 已内置于此内核源码中，跳过修补。"
-          else
-            echo "⬇️ Fetching Fengchi (HMBIRD) patch for SM8750..."
-            git clone https://github.com/Numbersf/SCHED_PATCH.git -b "sm8750" /tmp/sched_patch
-            PATCH_FILE="/tmp/sched_patch/fengchi_oneplus_13_b.patch"
-            if [[ -f "$PATCH_FILE" ]]; then
-              cp "$PATCH_FILE" ./
-              dos2unix fengchi_oneplus_13_b.patch
-              patch -p1 -F 3 < fengchi_oneplus_13_b.patch
-            else
-              sed -i '1iobj-y += hmbird_patch.o' drivers/Makefile
-              wget -q https://github.com/Numbersf/Action-Build/raw/SukiSU-Ultra/patches/hmbird_patch.patch
-              patch -p1 -F 3 < hmbird_patch.patch
-            fi
-          fi
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_SCHED_CLASS_EXT=y
-          CONFIG_OPLUS_FEATURE_HMBIRD_BOOST=y
-          CONFIG_OPLUS_FEATURE_HMBIRD_SCHED=y
-          EOF
-
       - name: 配置 SchedUtil 优化
         if: inputs.schedutil_opt
         working-directory: kernel_workspace
@@ -792,15 +740,6 @@ jobs:
           CONFIG_NO_HZ_IDLE=y
           EOF
 
-
-      - name: 启用 WireGuard
-        if: inputs.wireguard
-        working-directory: kernel_workspace
-        run: |
-          echo "Enabling WireGuard..."
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_WIREGUARD=y
-          EOF
 
       - name: 启用 Full Netfilter
         if: inputs.netfilter_full
@@ -866,6 +805,13 @@ jobs:
           WLEOF
           fi
 
+      - name: 🔧 Set Kernel name (设置内核名称)
+        run: |
+          cd kernel_workspace
+          echo "内核后缀: $DEFAULT_SUFFIX"
+          ESCAPED_SUFFIX=$(printf '%s\n' "$DEFAULT_SUFFIX" | sed 's:[\/&]:\\&:g')
+          sudo sed -i "s/-4k/$ESCAPED_SUFFIX/g" ./common/arch/arm64/configs/gki_defconfig
+          sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
       - name: 构建内核
         run: |
