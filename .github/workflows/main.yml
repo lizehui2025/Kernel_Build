@@ -759,30 +759,27 @@ jobs:
           CONFIG_NO_HZ_IDLE=y
           EOF
 
-      - name: 启用 LRNG v59
+      - name: 启用 LRNG v52
         if: inputs.lrng_enable
         working-directory: kernel_workspace/common
         run: |
-          echo "Enabling LRNG (Linux Random Number Generator) v59..."
-           # 1. 克隆源码
-            git clone --depth=1 https://github.com/smuellerDD/lrng.git /tmp/lrng_src
-            
-            # 2. 创建目标文件夹
-            mkdir -p drivers/char/lrng
-            
-            # 3. 修复复制路径：直接从仓库根目录复制所有文件
-            cp -r /tmp/lrng_src/* drivers/char/lrng/
-            
-            # 4. (关键修复) 注入 Makefile 和 Kconfig，让内核编译器能“看”到它
-            if ! grep -q "lrng/Kconfig" drivers/char/Kconfig; then
-              sed -i '$i source "drivers/char/lrng/Kconfig"' drivers/char/Kconfig
-            fi
-            if ! grep -q "CONFIG_LRNG" drivers/char/Makefile; then
-              echo 'obj-$(CONFIG_LRNG) += lrng/' >> drivers/char/Makefile
-            fi
+          echo "Enabling LRNG (Linux Random Number Generator) via v6.6 patches..."
+          
+          # 1. 克隆源码到临时目录
+          git clone --depth=1 https://github.com/smuellerDD/lrng.git /tmp/lrng_src
+          
+          # 2. 按顺序应用 v6.6 目录下的所有内核补丁
+          # 官方补丁会自动创建 drivers/char/lrng 目录并修改 Kconfig/Makefile，无需再手动介入
+          echo "Applying LRNG v6.6 kernel patches..."
+          for patch_file in $(ls /tmp/lrng_src/kernel_patches/v6.6/*.patch | sort); do
+            echo "Applying: $(basename "$patch_file")"
+            # 使用 -F 3 增加上下文容错率，|| true 防止某个次要 patch (如 cover-letter) 失败导致整个任务中断
+            patch -p1 -F 3 --no-backup-if-mismatch < "$patch_file" || echo "Warning: Patch applied with fuzz or skipped."
+          done
 
-            # 5. 写入 Defconfig
-            cat >> $CONF << 'EOF'
+          # 3. 写入 Defconfig 启用各项特性
+          CONF="arch/arm64/configs/gki_defconfig"
+          cat >> $CONF << 'EOF'
           CONFIG_LRNG=y
           CONFIG_LRNG_SHA256=y
           CONFIG_LRNG_COLLECTION_SIZE=1024
@@ -792,8 +789,7 @@ jobs:
           CONFIG_LRNG_IRQ=y
           CONFIG_LRNG_CONTINUOUS_COMPRESSION_ENABLED=y
           EOF
-          fi
-
+          
       - name: 启用 Wakelock Blocker
         if: inputs.wakelock_blocker
         working-directory: kernel_workspace/common
