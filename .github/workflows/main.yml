@@ -725,20 +725,17 @@ jobs:
         working-directory: kernel_workspace
         run: |
           echo "Enabling ZRAM Writeback support..."
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_ZRAM_WRITEBACK=y
-          CONFIG_ZRAM_MEMORY_TRACKING=y
-          EOF
+          echo "CONFIG_ZRAM_WRITEBACK=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_MEMORY_TRACKING=y" >> ./common/arch/arm64/configs/gki_defconfig
 
       - name: 配置 SchedUtil 优化
         if: inputs.schedutil_opt
         working-directory: kernel_workspace
         run: |
           echo "Applying SchedUtil optimizations..."
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          EOF
+          echo "CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y" >> ./common/arch/arm64/configs/gki_defconfig
+           
           SU_C="common/kernel/sched/cpufreq_schedutil.c"
           if [ -f "$SU_C" ]; then
             sed -i 's/LATENCY_MULTIPLIER\s*=\s*1000/LATENCY_MULTIPLIER = 1000/' "$SU_C" 2>/dev/null || true
@@ -748,14 +745,12 @@ jobs:
         if: inputs.cpu_opt
         run: |
           echo "Setting up CPU tuning..."
-          cd kernel_workspace/common
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_ARM64_ERRATUM_2658417=y
-          CONFIG_ARCH_QCOM=y
-          CONFIG_HZ_300=y
-          CONFIG_PREEMPT=y
-          CONFIG_NO_HZ_IDLE=y
-          EOF
+          cd kernel_workspace
+          echo "CONFIG_ARM64_ERRATUM_2658417=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ARCH_QCOM=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_HZ_300=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PREEMPT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NO_HZ_IDLE=y" >> ./common/arch/arm64/configs/gki_defconfig
 
       - name: 启用 LRNG v52
         if: inputs.lrng_enable
@@ -775,18 +770,16 @@ jobs:
             patch -p1 -F 3 --no-backup-if-mismatch < "$patch_file" || echo "Warning: Patch applied with fuzz or skipped."
           done
 
-          # 3. 写入 Defconfig 启用各项特性
-          CONF="arch/arm64/configs/gki_defconfig"
-          cat >> $CONF << 'EOF'
-          CONFIG_LRNG=y
-          CONFIG_LRNG_SHA256=y
-          CONFIG_LRNG_COLLECTION_SIZE=1024
-          CONFIG_LRNG_HEALTH_TESTS=y
-          CONFIG_LRNG_RCT_CUTOFF=31
-          CONFIG_LRNG_APT_CUTOFF=325
-          CONFIG_LRNG_IRQ=y
-          CONFIG_LRNG_CONTINUOUS_COMPRESSION_ENABLED=y
-          EOF
+          cd ..
+
+          echo "CONFIG_LRNG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LRNG_SHA256=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LRNG_COLLECTION_SIZE=1024" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LRNG_HEALTH_TESTS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LRNG_RCT_CUTOFF=31" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LRNG_APT_CUTOFF=325" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LRNG_IRQ=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LRNG_CONTINUOUS_COMPRESSION_ENABLED=y" >> ./common/arch/arm64/configs/gki_defconfig
           
 
       - name: 🔧 Set Kernel name (设置内核名称)
@@ -842,7 +835,7 @@ jobs:
           # 核心编译参数区
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
-          OPT_LDFLAGS="--icf=safe --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-polly -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
+          OPT_LDFLAGS="--icf=all --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
           
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
             echo "--- 正在将 AutoFDO Profile注入编译器与链接器 ---"
