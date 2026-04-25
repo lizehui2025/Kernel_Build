@@ -751,6 +751,16 @@ jobs:
           echo "CONFIG_HZ_300=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_PREEMPT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_NO_HZ_IDLE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_RCU_LAZY_DEFUALT_OFF=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_MULTI_COMP=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CMA_DEBUGFS is not set" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_BT_DEBUGFS is not set" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_BLK_DEBUG_FS is not set" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_BLK_DEBUG_FS_ZONED is not set" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PTDUMP_STAGE2_DEBUGFS is not set" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PM_SLEEP_DEBUG is not set" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PM_ADVANCED_DEBUG is not set" >> ./common/arch/arm64/configs/gki_defconfig
 
       - name: 启用 LRNG v52
         if: inputs.lrng_enable
