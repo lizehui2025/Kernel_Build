@@ -804,8 +804,10 @@ jobs:
           
           # 根据选择的工具链动态配置路径
           if [[ "${{ github.event.inputs.clang_version }}" == "clang19" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/linux-x86/bin:$PATH"
-            CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
+          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
           elif [[ "${{ github.event.inputs.clang_version }}" == "aosp_clang" ]]; then
             export PATH="$WORKDIR/kernel_workspace/clang-aosp/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
             CLANG_DIR="$WORKDIR/kernel_workspace/clang-aosp/bin"
