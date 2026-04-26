@@ -751,7 +751,7 @@ jobs:
           echo "CONFIG_HZ_300=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_PREEMPT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_NO_HZ_IDLE=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_RCU_LAZY_DEFUALT_OFF=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_RCU_LAZY_DEFAULT_OFF=n" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_ZRAM_MULTI_COMP=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_CMA_DEBUGFS is not set" >> ./common/arch/arm64/configs/gki_defconfig
