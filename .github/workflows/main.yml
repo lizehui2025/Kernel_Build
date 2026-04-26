@@ -727,10 +727,8 @@ jobs:
           echo "Enabling ZRAM Writeback support..."
           echo "CONFIG_ZRAM_WRITEBACK=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_ZRAM_MEMORY_TRACKING=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_ZRAM_MULTI_COMP=y
-" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_ZRAM_DEF_COMP_LZ4=y
-" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_MULTI_COMP=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_DEF_COMP_LZ4=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_ZRAM_DEF_COMP="lz4" >> ./common/arch/arm64/configs/gki_defconfig
 
       - name: 配置 SchedUtil 优化
