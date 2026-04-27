@@ -625,6 +625,7 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KASAN=n" >> ./common/arch/arm64/configs/gki_defconfig
 
           echo "CONFIG_LLVM_POLLY=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -690,66 +691,6 @@ jobs:
             echo "CONFIG_DEFAULT_CUBIC=y" >> ./common/arch/arm64/configs/gki_defconfig
             echo 'CONFIG_DEFAULT_TCP_CONG="cubic"' >> ./common/arch/arm64/configs/gki_defconfig
           fi
-
-      - name: Clone XanMod Patches & Apply BBRv3
-        working-directory: kernel_workspace
-        if: inputs.bbr_enable != 'false'
-        run: |
-          echo "==========================================="
-          echo ">>> 1. 浅克隆 XanMod 补丁仓库 (极速模式)"
-          echo "==========================================="
-          # 使用 --depth 1 只拉取最新代码，节省大量 CI 时间和网络带宽
-          git clone --depth 1 https://github.com/xanmod/linux-patches.git xanmod_patches
-          
-          # 定义变量，指向 6.6 内核的 BBRv3 补丁目录
-          PATCH_DIR="../xanmod_patches/linux-6.6.y-xanmod/net/tcp/bbr3"
-          TARGET_DIR="common"
-          
-          echo "==========================================="
-          echo ">>> 2. 验证补丁目录并进入内核源码树"
-          echo "==========================================="
-          if [ ! -d "xanmod_patches/linux-6.6.y-xanmod" ]; then
-              echo "❌ 错误: 未找到对应的 6.6 版本补丁目录！"
-              exit 1
-          fi
-          
-          cd $TARGET_DIR
-          
-          echo "==========================================="
-          echo ">>> 3. 按编号顺序安全合入 BBRv3 补丁"
-          echo "==========================================="
-          # 必须使用 sort 确保 0001, 0002... 顺序执行，因为后续补丁依赖前面的结构体变动
-          for p in $(ls $PATCH_DIR/*.patch | sort); do
-              PATCH_NAME=$(basename "$p")
-              echo "⏳ 正在打入: $PATCH_NAME"
-              
-              # -p1: 忽略补丁中的 a/ b/ 虚拟目录
-              # --forward: 如果补丁已经打过，则静默跳过，防止重复打补丁代码错乱
-              # --batch: 自动化模式，遇到疑问（如文件找不到）直接报错，绝不卡死等待输入
-              patch -p1 --forward --batch < "$p" || {
-                  echo "❌ 严重错误: 补丁 $PATCH_NAME 合入失败！"
-                  echo "🔍 正在搜索生成的 .rej 冲突文件..."
-                  find . -name "*.rej"
-                  echo "💡 提示: 这通常是因为 GKI 源码已被其他补丁修改，或者触碰了 KMI 边界。"
-                  exit 1
-              }
-          done
-          
-          echo "==========================================="
-          echo ">>> 4. 自动化配置检验 (BBRv3 激活状态)"
-          echo "==========================================="
-          # 检查 TCP 拥塞控制配置是否成功写入
-          if grep -q "TCP_CONG_BBR" net/ipv4/Kconfig; then
-              echo "✅ BBRv3 核心代码已成功合入！"
-              # 自动向 defconfig 注入开启指令
-              echo "CONFIG_TCP_CONG_BBR=y" >> arch/arm64/configs/gki_defconfig
-              echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> arch/arm64/configs/gki_defconfig
-              echo "CONFIG_DEFAULT_FQ=y" >> arch/arm64/configs/gki_defconfig
-          else
-              echo "⚠️ 警告: Kconfig 中未检测到 BBR 配置，请手动检查！"
-          fi
-          
-          echo "🎉 克隆与打补丁阶段全部完成！"
 
       - name: 启用ADIOS IO调度器
         if: inputs.adios_enable
