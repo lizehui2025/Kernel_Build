@@ -915,7 +915,7 @@ jobs:
             HOSTLD=ld.lld \
             O=out \
             KCFLAGS="$OPT_KCFLAGS ${EXTRA_CFLAGS:-}" \
-            KBUILD_LDFLAGS="$OPT_LDFLAGS" \
+            LDFLAGS_vmlinux="$OPT_LDFLAGS" \
             $ABI_FLAGS \
             Image
           
