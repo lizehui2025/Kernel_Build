@@ -823,7 +823,7 @@ jobs:
           if [ -f "$MAKEFILE_PATH" ]; then
             echo "正在向 $MAKEFILE_PATH 注入优化隔离规则..."
             # 在 Makefile 第一行注入 filter-out 规则，剔除 AutoFDO 和 LTO 参数
-            sed -i '1s/^/KBUILD_CFLAGS := $(filter-out -fprofile-sample-use=% -fprofile-use=% $(CC_FLAGS_LTO), $(KBUILD_CFLAGS))\n/' "$MAKEFILE_PATH"
+            sed -i 's|cmd_hyprel =|cmd_hyprel = $(OBJCOPY) --remove-section=".rel.llvm.call-graph-profile" $< \&\& |' arch/arm64/kvm/hyp/nvhe/Makefile.nvhe
             echo "注入完成。"
           else
             echo "错误：未找到目标 Makefile，请检查相对路径是否正确。"
