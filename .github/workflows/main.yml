@@ -757,26 +757,38 @@ jobs:
           echo "CONFIG_RCU_LAZY_DEFAULT_OFF=n" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" >> ./common/arch/arm64/configs/gki_defconfig
 
-      - name: 启用 LRNG v52
+      - name: 启用 LRNG v60
         if: inputs.lrng_enable
         working-directory: kernel_workspace/common
         run: |
-          echo "Enabling LRNG (Linux Random Number Generator) via v6.6 patches..."
+          echo "Enabling LRNG (Linux Random Number Generator) via v60 backports for v6.6..."
           
           # 1. 克隆源码到临时目录
           git clone --depth=1 https://github.com/smuellerDD/lrng.git /tmp/lrng_src
           
-          # 2. 按顺序应用 v6.6 目录下的所有内核补丁
-          # 官方补丁会自动创建 drivers/char/lrng 目录并修改 Kconfig/Makefile，无需再手动介入
-          echo "Applying LRNG v6.6 kernel patches..."
-          for patch_file in $(ls /tmp/lrng_src/kernel_patches/v6.6/*.patch | sort); do
-            echo "Applying: $(basename "$patch_file")"
-            # 使用 -F 3 增加上下文容错率，|| true 防止某个次要 patch (如 cover-letter) 失败导致整个任务中断
-            patch -p1 -F 3 --no-backup-if-mismatch < "$patch_file" || echo "Warning: Patch applied with fuzz or skipped."
+          echo "Applying LRNG v60 kernel patches for Linux 6.6..."
+
+          # 第 1 步：应用所有 6 位数字的前置环境补丁
+          for patch_file in $(ls /tmp/lrng_src/backports/v60-6.6.119/*-0000*.patch | sort); do
+            echo "Step 1 - Applying: $(basename "$patch_file")"
+            patch -p1 -F 3 --no-backup-if-mismatch < "$patch_file" || true
+          done
+
+          # 第 2 步：应用 v60 针对 Linux 6.18 的主体补丁
+          for patch_file in $(ls /tmp/lrng_src/kernel_patches/v6.18/*.patch | sort); do
+            echo "Step 2 - Applying: $(basename "$patch_file")"
+            patch -p1 -F 3 --no-backup-if-mismatch < "$patch_file" || true
+          done
+
+          # 第 3 步：应用所有 2 位数字的适配兼容补丁
+          for patch_file in $(ls /tmp/lrng_src/backports/v60-6.6.119/*-[0-9][0-9]-*.patch | sort); do
+            echo "Step 3 - Applying: $(basename "$patch_file")"
+            patch -p1 -F 3 --no-backup-if-mismatch < "$patch_file" || true
           done
 
           cd ..
 
+          # 写入相关 GKI 配置
           echo "CONFIG_LRNG=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LRNG_SHA256=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LRNG_COLLECTION_SIZE=1024" >> ./common/arch/arm64/configs/gki_defconfig
@@ -785,7 +797,6 @@ jobs:
           echo "CONFIG_LRNG_APT_CUTOFF=325" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LRNG_IRQ=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LRNG_CONTINUOUS_COMPRESSION_ENABLED=y" >> ./common/arch/arm64/configs/gki_defconfig
-          
 
       - name: 🔧 Set Kernel name (设置内核名称)
         run: |
