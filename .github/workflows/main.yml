@@ -859,8 +859,7 @@ jobs:
           # 核心编译参数区
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
-          OPT_LDFLAGS="--icf=all --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop -mllvm -sample-profile-use-profi
-"
+          OPT_LDFLAGS="--icf=all --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
           
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
             echo "--- 正在将 AutoFDO Profile注入编译器与链接器 ---"
