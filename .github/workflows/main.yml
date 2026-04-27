@@ -821,19 +821,19 @@ jobs:
           
           # 根据选择的工具链动态配置路径
           if [[ "${{ github.event.inputs.clang_version }}" == "clang19" ]]; then
-          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
-          export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-          export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
-          export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
+            export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
+            export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
+            export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
+            export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
           elif [[ "${{ github.event.inputs.clang_version }}" == "aosp_clang" ]]; then
             export PATH="$WORKDIR/kernel_workspace/clang-aosp/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            CLANG_DIR="$WORKDIR/kernel_workspace/clang-aosp/bin"
+            export CLANG_DIR="$WORKDIR/kernel_workspace/clang-aosp/bin"
           elif [[ "${{ github.event.inputs.clang_version }}" == "neutron" ]]; then
             export PATH="$WORKDIR/kernel_workspace/neutron-clang/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            CLANG_DIR="$WORKDIR/kernel_workspace/neutron-clang/bin"
+            export CLANG_DIR="$WORKDIR/kernel_workspace/neutron-clang/bin"
           else
             export PATH="$WORKDIR/kernel_workspace/clang18/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
+            export CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
           fi
           
           CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
@@ -842,7 +842,8 @@ jobs:
           echo "编译器信息:"
           echo "Clang版本: $CLANG_VERSION"
           echo "LLD版本: $LLD_VERSION"
-          pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
+          pahole_version=$(pahole --version 2>/dev/null | head -n1)
+          [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
           
           export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
           
@@ -857,18 +858,22 @@ jobs:
           export KBUILD_BUILD_TIMESTAMP="${KERNEL_TIME}"
           
           # 核心编译参数区
+          # KCFLAGS 走 clang driver，可以使用 -mllvm
           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1 -mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release"
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
-          OPT_LDFLAGS="--icf=all --sort-section=alignment -Wl,--lto-O3 -Wl,-mllvm,-enable-icp-lto -Wl,-mllvm,-icp-lto-threshold=5 -Wl,-mllvm,-ipsccp -Wl,-mllvm,-enable-interprocedural-constprop"
+          
+          # KBUILD_LDFLAGS 直接传给 ld.lld，不能使用 -Wl,
+          # 保留较稳的 LTO/链接优化，删除风险较高或兼容性较差的 LTO 内部 pass
+          OPT_LDFLAGS="--icf=all --sort-section=alignment --lto-O3 \
+            -mllvm -enable-icp-lto \
+            -mllvm -icp-lto-threshold=5"
           
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
-            echo "--- 正在将 AutoFDO Profile注入编译器与链接器 ---"
+            echo "--- 正在将 AutoFDO Profile 注入编译器与链接器 ---"
             AFDO_FILE="$WORKDIR/kernel_workspace/kernel_aarch64.afdo"
             export CLANG_AUTOFDO_PROFILE="$AFDO_FILE"
             OPT_KCFLAGS="$OPT_KCFLAGS -fprofile-sample-use=$AFDO_FILE"
-            OPT_LDFLAGS="$OPT_LDFLAGS -Wl,-mllvm,-sample-profile-file=$AFDO_FILE"
-            LTO_ML_FLAGS=$(echo "$ML_FLAGS" | sed 's/-mllvm /-Wl,-mllvm,/g')
-            OPT_LDFLAGS="$OPT_LDFLAGS $LTO_ML_FLAGS"
+            OPT_LDFLAGS="$OPT_LDFLAGS -mllvm -sample-profile-file=$AFDO_FILE"
           fi
           
           OPLUS_KMI_LIST="android/abi_gki_aarch64_oplus"
@@ -880,17 +885,24 @@ jobs:
           fi
           
           echo "--- 开始生成内核配置 ---"
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            HOSTLD=ld.lld O=out \
+          make -j$(nproc --all) \
+            LLVM=1 LLVM_IAS=1 \
+            ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            HOSTLD=ld.lld \
+            O=out \
             gki_defconfig
           
           echo "--- 开始编译内核镜像 ---"
-          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            HOSTLD=ld.lld O=out \
-            KCFLAGS="$OPT_KCFLAGS ${EXTRA_CFLAGS:-}" KBUILD_LDFLAGS="$OPT_LDFLAGS" \
+          make -j$(nproc --all) \
+            LLVM=1 LLVM_IAS=1 \
+            ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            HOSTLD=ld.lld \
+            O=out \
+            KCFLAGS="$OPT_KCFLAGS ${EXTRA_CFLAGS:-}" \
+            KBUILD_LDFLAGS="$OPT_LDFLAGS" \
             $ABI_FLAGS \
             Image
-            
+          
           echo "内核编译完成！"
           df -h
 
