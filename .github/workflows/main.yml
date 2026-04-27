@@ -864,9 +864,7 @@ jobs:
           
           # KBUILD_LDFLAGS 直接传给 ld.lld，不能使用 -Wl,
           # 保留较稳的 LTO/链接优化，删除风险较高或兼容性较差的 LTO 内部 pass
-          OPT_LDFLAGS="--icf=all --sort-section=alignment --lto-O3 \
-            -mllvm -enable-icp-lto \
-            -mllvm -icp-lto-threshold=5"
+          OPT_LDFLAGS="--icf=all --sort-section=alignment --lto-O3 --lto-CGO3"
           
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
             echo "--- 正在将 AutoFDO Profile 注入编译器与链接器 ---"
