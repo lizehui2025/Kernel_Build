@@ -679,9 +679,16 @@ jobs:
           echo "CONFIG_TCP_CONG_BRUTAL=y" >> ./common/arch/arm64/configs/gki_defconfig
           if [[ "${{ github.event.inputs.bbr_enable }}" == "default" ]]; then
             echo "正在将BBR设为默认拥塞控制算法..."
-            echo "CONFIG_DEFAULT_TCP_CONG=bbr" >> ./common/arch/arm64/configs/gki_defconfig
+            # 1. 显式禁用原有的默认 CUBIC 算法
+            sed -i 's/CONFIG_DEFAULT_CUBIC=y/# CONFIG_DEFAULT_CUBIC is not set/g' ./common/arch/arm64/configs/gki_defconfig
+            # 2. 开启 DEFAULT_BBR 选项
+            echo "CONFIG_DEFAULT_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+            # 3. 写入带有双引号的字符串（注意外面用单引号，里面用双引号）
+            echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> ./common/arch/arm64/configs/gki_defconfig
           else
-            echo "CONFIG_DEFAULT_TCP_CONG=cubic" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "正在将CUBIC设为默认拥塞控制算法..."
+            echo "CONFIG_DEFAULT_CUBIC=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo 'CONFIG_DEFAULT_TCP_CONG="cubic"' >> ./common/arch/arm64/configs/gki_defconfig
           fi
 
       - name: 启用ADIOS IO调度器
