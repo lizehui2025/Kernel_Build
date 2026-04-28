@@ -882,7 +882,6 @@ jobs:
           # KBUILD_LDFLAGS 直接传给 ld.lld，不能使用 -Wl,
           # 保留较稳的 LTO/链接优化，删除风险较高或兼容性较差的 LTO 内部 pass
           OPT_LDFLAGS="--sort-section=alignment --lto-O3 --icf=safe"
-          echo "LDFLAGS_vmlinux += $OPT_LDFLAGS" >> Makefile
           
           if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
             echo "--- 正在将 AutoFDO Profile 注入编译器与链接器 ---"
@@ -899,6 +898,8 @@ jobs:
           else
             export ABI_FLAGS=""
           fi
+
+          echo "LDFLAGS_vmlinux += $OPT_LDFLAGS" >> Makefile
           
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) \
@@ -919,6 +920,32 @@ jobs:
             Image
           
           echo "内核编译完成！"
+
+          echo "--- 验证链接器参数传递情况 ---"
+          # 查找 vmlinux 的真实链接执行命令
+          VMLINUX_CMD_FILE="out/.vmlinux.cmd"
+
+          if [ -f "$VMLINUX_CMD_FILE" ]; then
+          echo "✅ 找到链接日志：$VMLINUX_CMD_FILE"
+  
+           # 检查是否包含你传入的关键参数
+          if grep -q "lto-O3" "$VMLINUX_CMD_FILE"; then
+          echo "🎉 成功：LTO 参数已传递给链接器！"
+          else
+          echo "❌ 失败：LTO 参数丢失！"
+          fi
+  
+          if [ "${{ github.event.inputs.autofdo_enable }}" == "true" ]; then
+          if grep -q "sample-profile-file" "$VMLINUX_CMD_FILE"; then
+          echo "🎉 成功：AutoFDO 参数已传递给链接器！"
+          else
+          echo "❌ 失败：AutoFDO 参数未进入链接阶段！"
+             fi
+          fi
+          else
+          echo "⚠️ 未找到 $VMLINUX_CMD_FILE，请检查 O=out 路径是否正确。"
+          fi
+          
           df -h
 
       - name: 应用KPM并修补内核
