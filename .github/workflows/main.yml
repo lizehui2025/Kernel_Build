@@ -813,23 +813,6 @@ jobs:
           sudo sed -i "s/-4k/$ESCAPED_SUFFIX/g" ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
-      - name: Isolate KVM nvhe from global PGO/LTO optimizations
-        # 如果你的内核源码在一个子目录中（例如 GKI 常见的 common/ 目录），请启用并修改 working-directory
-        working-directory: kernel_workspace/common
-        run: |
-          MAKEFILE_PATH="arch/arm64/kvm/hyp/nvhe/Makefile"
-          
-          if [ -f "$MAKEFILE_PATH" ]; then
-            echo "正在向 $MAKEFILE_PATH 注入优化隔离规则..."
-            # 在 Makefile 第一行注入 filter-out 规则，剔除 AutoFDO 和 LTO 参数
-            sed -i 's|cmd_hyprel =|cmd_hyprel = $(OBJCOPY) --remove-section=".rel.llvm.call-graph-profile" $< \&\& |' arch/arm64/kvm/hyp/nvhe/Makefile.nvhe
-            echo "注入完成。"
-          else
-            echo "错误：未找到目标 Makefile，请检查相对路径是否正确。"
-            exit 1
-          fi
-
-
 
       - name: 构建内核
         run: |
@@ -899,7 +882,7 @@ jobs:
             export ABI_FLAGS=""
           fi
 
-          echo "LDFLAGS_vmlinux += $OPT_LDFLAGS" >> Makefile
+          echo "KBUILD_LDFLAGS += $OPT_LDFLAGS" >> Makefile
           
           echo "--- 开始生成内核配置 ---"
           make -j$(nproc --all) \
