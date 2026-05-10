@@ -678,19 +678,16 @@ jobs:
       - name: 🔧 Setup Patches | 配置补丁
         run: |
           cd kernel_workspace
-
           echo "⬇️ 克隆所需补丁..."
-
           git clone https://github.com/lizehui2025/kernel_patches.git
-
+          
           echo "📝 复制补丁文件..."
-
           cd ./common
-
           cp ../kernel_patches/bbr/bbrv3-gki-6.6.patch ./
-
-          echo "📦 正在启用POLLY支持..."
-          git apply -p1 < bbrv3-gki-6.6.patch || true
+          
+          echo "📦 正在启用支持..."
+          # 使用 patch 替代 git apply，如果存在轻微冲突它会尝试模糊匹配
+          patch -p1 < bbrv3-gki-6.6.patch
 
       - name: 启用ADIOS IO调度器
         if: inputs.adios_enable
