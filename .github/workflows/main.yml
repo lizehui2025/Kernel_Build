@@ -188,22 +188,6 @@ jobs:
     outputs:
       ksuver: ${{ steps.ksu_version.outputs.ksuver }}
     steps:
-      - name: Deep Clean Runner
-        run: |
-          echo "Starting deep clean..."
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /usr/share/dotnet      
-          sudo rm -rf /opt/ghc               
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/local/share/swift
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo docker image prune --all --force
-          echo "Deep clean finished. Current disk space:"
-          df -h /
-
       - name: 配置 Swap 空间 (防止编译内存溢出)
         uses: pierotofy/set-swap-space@master
         with:
