@@ -677,16 +677,12 @@ jobs:
 
       - name: 🔧 Setup Patches | 配置补丁
         run: |
-          cd kernel_workspace
-          echo "⬇️ 克隆所需补丁..."
-          git clone https://github.com/lizehui2025/kernel_patches.git
+          cd kernel_workspace/common
           
-          echo "📝 复制补丁文件..."
-          cd ./common
-          cp ../kernel_patches/bbr/bbrv3-gki-6.6.patch ./
+          echo "⬇️ 下载 bbrv3 补丁..."
+          wget https://raw.githubusercontent.com/lizehui2025/kernel_patches/main/bbr/bbrv3-gki-6.6.patch
           
           echo "📦 正在启用支持..."
-          # 使用 patch 替代 git apply，如果存在轻微冲突它会尝试模糊匹配
           patch -p1 < bbrv3-gki-6.6.patch
 
       - name: 启用ADIOS IO调度器
