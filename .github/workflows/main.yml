@@ -675,16 +675,6 @@ jobs:
             echo 'CONFIG_DEFAULT_TCP_CONG="cubic"' >> ./common/arch/arm64/configs/gki_defconfig
           fi
 
-      - name: 🔧 Setup Patches | 配置补丁
-        run: |
-          cd kernel_workspace/common
-          
-          echo "⬇️ 下载 bbrv3 补丁..."
-          wget https://raw.githubusercontent.com/lizehui2025/kernel_patches/patches/bbr/bbrv3-gki-6.6.patch
-          
-          echo "📦 正在启用支持..."
-          patch -p1 < bbrv3-gki-6.6.patch
-
       - name: 启用ADIOS IO调度器
         if: inputs.adios_enable
         run: |
