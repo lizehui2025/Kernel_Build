@@ -79,12 +79,6 @@ on:
           - 'thin'
           - 'full'
 
-      susfs_enable:
-        description: '是否开启susfs(用于增强隐藏环境挂载功能;可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭,该选项与HymoFS冲突)'
-        required: true
-        type: boolean
-        default: 'false'
-
       lz4_enable:
         description: '是否安装 lz4 1.10.0+zstd 1.5.7 补丁'
         required: true
@@ -150,7 +144,7 @@ on:
         default: 'true'
         
       lrng_enable:
-        description: '开启 LRNG v59 (提供更好的加密/游戏随机数熵)'
+        description: '开启 LRNG v60 (提供更好的加密/游戏随机数熵)'
         required: true
         type: boolean
         default: 'false'
@@ -160,12 +154,6 @@ on:
         required: true
         type: boolean
         default: 'true'
-
-      ccache_debug:
-        description: '是否上传 Ccache调试日志'
-        required: true
-        type: boolean
-        default: 'false'
 
       mem_opt_patches:
         description: 'Enable memory/scheduler optimization patches (from WildKernels)'
