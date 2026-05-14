@@ -25,13 +25,9 @@ jobs:
           df -h
 
       - name: 💾 Setup Swap Space (防止 OOM 内存溢出)
-        # LLVM 开启 ThinLTO 后链接阶段极度吃内存，挂载 8G Swap 保命
-        run: |
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 16
 
       - name: 📦 Install Build Dependencies (安装编译依赖)
         run: |
