@@ -64,6 +64,7 @@ on:
         default: 'clang19'
         options:
           - 'clang19'
+          - 'llvm19_1_7'
           - 'neutron'
           - 'aosp_clang'
           - 'clang20'
@@ -283,7 +284,7 @@ jobs:
           sudo apt update &&
           sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache aria2 dos2unix &
           
-          echo "正在克隆源码仓库..."
+          echo "正在克隆源码仓库."
           aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_16.0.0_oneplus_13_6.6.89.zip -o common.zip && 
           unzip -q common.zip && 
           mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_v_16.0.0_oneplus_13_6.6.89" common &&
@@ -291,66 +292,87 @@ jobs:
           
           # 根据输入选择对应的 Clang 版本
           if [[ ${{ github.event.inputs.clang_version }} == "clang20" ]]; then
-            echo "获取 Clang 20..."
+            echo "获取 Clang 20."
             mkdir -p clang18 &&
             curl -L "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang20-r547379/clang-r547379.zip" -o clang.zip &&
             unzip -q clang.zip -d clang18 &&
             rm -rf clang.zip &
-            echo "获取匹配的 Google Build Tools..." &&
+
+            echo "获取匹配的 Google Build Tools." &&
             curl -L "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang20-r547379/build-tools.zip" -o build-tools.zip &&
             unzip -q build-tools.zip &&
             rm -rf build-tools.zip &
 
           elif [[ ${{ github.event.inputs.clang_version }} == "clang19" ]]; then
-          echo "正在克隆llvm-clang19工具链..." &&
-          mkdir -p clang19 &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip &&
-          unzip -q clang.zip -d clang19 &&
-          rm -rf clang.zip &
-          
-          echo "正在克隆Rust 1.82.0工具链..." &&
-          mkdir -p rust &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
-          unzip -q rust.zip -d rust &&
-          rm -rf rust.zip &
-          
-          echo "正在克隆构建工具..." &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip &&
-          unzip -q build-tools.zip &&
-          rm -rf build-tools.zip &
-          
+            echo "正在克隆 llvm-clang19 工具链."
+            mkdir -p clang19
+            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip &&
+            unzip -q clang.zip -d clang19 &&
+            rm -rf clang.zip &
+
+            echo "正在克隆 Rust 1.82.0 工具链."
+            mkdir -p rust
+            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
+            unzip -q rust.zip -d rust &&
+            rm -rf rust.zip &
+
+            echo "正在克隆构建工具."
+            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip &&
+            unzip -q build-tools.zip &&
+            rm -rf build-tools.zip &
+
+          elif [[ ${{ github.event.inputs.clang_version }} == "llvm19_1_7" ]]; then
+            echo "获取官方 LLVM 19.1.7 kernel slim 工具链."
+            mkdir -p llvm19_1_7
+            aria2c -s16 -x16 -k1M https://www.kernel.org/pub/tools/llvm/files/llvm-19.1.7-x86_64.tar.xz -o llvm-19.1.7.tar.xz &&
+            tar -C llvm19_1_7 --strip-components=1 -xf llvm-19.1.7.tar.xz &&
+            rm -rf llvm-19.1.7.tar.xz &
+
+            echo "正在克隆 Rust 1.82.0 工具链."
+            mkdir -p rust
+            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
+            unzip -q rust.zip -d rust &&
+            rm -rf rust.zip &
+
+            echo "获取官方 Google Build Tools."
+            mkdir -p build-tools
+            curl -L "https://android.googlesource.com/kernel/prebuilts/build-tools/+archive/refs/heads/main/linux-x86.tar.gz" -o build-tools.tar.gz &&
+            tar -C build-tools -zxf build-tools.tar.gz &&
+            rm -rf build-tools.tar.gz &
+
           elif [[ ${{ github.event.inputs.clang_version }} == "neutron" ]]; then
-            echo "获取 Neutron Clang..."
+            echo "获取 Neutron Clang."
             mkdir -p neutron-clang
             curl -sSL "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman" -o neutron-clang/antman
             cd neutron-clang
             bash antman -S
             cd ..
-            echo "获取官方 Google Build Tools..."
+            echo "获取官方 Google Build Tools."
             mkdir -p build-tools
             curl -L "https://android.googlesource.com/kernel/prebuilts/build-tools/+archive/refs/heads/main/linux-x86.tar.gz" -o build-tools.tar.gz
             tar -C build-tools -zxf build-tools.tar.gz
             rm -rf build-tools.tar.gz &
 
           elif [[ ${{ github.event.inputs.clang_version }} == "aosp_clang" ]]; then
-            echo "获取 Google AOSP Clang r584948..."
+            echo "获取 Google AOSP Clang r584948."
             mkdir -p clang-aosp
             aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/mirror-goog-main-llvm-toolchain-source/clang-r584948.tar.gz" -o clang.tar.gz
             tar -C clang-aosp -zxf clang.tar.gz
             rm -rf clang.tar.gz &
-            echo "获取官方 Google Build Tools..."
+            echo "获取官方 Google Build Tools."
             mkdir -p build-tools
             curl -L "https://android.googlesource.com/kernel/prebuilts/build-tools/+archive/refs/heads/main/linux-x86.tar.gz" -o build-tools.tar.gz
             tar -C build-tools -zxf build-tools.tar.gz
             rm -rf build-tools.tar.gz &
 
           elif [[ ${{ github.event.inputs.clang_version }} == "clang18" ]]; then
-            echo "获取 LLVM-Clang18 工具链..." &&
-            mkdir -p clang18 &&
+            echo "获取 LLVM-Clang18 工具链."
+            mkdir -p clang18
             aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/clang-r510928.zip -o clang.zip &&
             unzip -q clang.zip -d clang18 &&
             rm -rf clang.zip &
-            echo "获取构建工具..." &&
+
+            echo "获取构建工具."
             aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/build-tools.zip -o build-tools.zip &&
             unzip -q build-tools.zip &&
             rm -rf build-tools.zip &
@@ -358,7 +380,14 @@ jobs:
           
           wait
           echo "所有源码及工具链初始化完成！"
-          echo "正在去除 ABI 保护及 dirty 后缀..."
+
+          if [[ -d rust/bin ]]; then
+            echo "Rust 工具链已存在: $(pwd)/rust/bin"
+            ./rust/bin/rustc --version || true
+            ./rust/bin/cargo --version || true
+          fi
+
+          echo "正在去除 ABI 保护及 dirty 后缀."
           rm common/android/abi_gki_protected_exports_* || true
           for f in common/scripts/setlocalversion; do
             sed -i 's/ -dirty//g' "$f"
@@ -706,31 +735,61 @@ jobs:
           
           # 根据选择的工具链动态配置路径
           if [[ "${{ github.event.inputs.clang_version }}" == "clang19" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
-            export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
+            export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
             export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
+
+          elif [[ "${{ github.event.inputs.clang_version }}" == "llvm19_1_7" ]]; then
+            export PATH="$WORKDIR/kernel_workspace/llvm19_1_7/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
+            export CLANG_DIR="$WORKDIR/kernel_workspace/llvm19_1_7/bin"
+
           elif [[ "${{ github.event.inputs.clang_version }}" == "aosp_clang" ]]; then
             export PATH="$WORKDIR/kernel_workspace/clang-aosp/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
             export CLANG_DIR="$WORKDIR/kernel_workspace/clang-aosp/bin"
+
           elif [[ "${{ github.event.inputs.clang_version }}" == "neutron" ]]; then
             export PATH="$WORKDIR/kernel_workspace/neutron-clang/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
             export CLANG_DIR="$WORKDIR/kernel_workspace/neutron-clang/bin"
+
+          elif [[ "${{ github.event.inputs.clang_version }}" == "clang20" ]]; then
+            export PATH="$WORKDIR/kernel_workspace/clang18/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
+            export CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
+
           else
             export PATH="$WORKDIR/kernel_workspace/clang18/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
             export CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
           fi
-          
+
+          export LLVM=$CLANG_DIR/
+          export RUST_LIB_SRC="$WORKDIR/kernel_workspace/rust/lib/rustlib/src/rust/library"
+
           CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
           LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
-          
+
           echo "编译器信息:"
           echo "Clang版本: $CLANG_VERSION"
           echo "LLD版本: $LLD_VERSION"
+
+          if command -v rustc >/dev/null 2>&1; then
+            echo "Rust版本: $(rustc --version)"
+          else
+            echo "Rust版本: 未找到 rustc"
+          fi
+
+          if command -v cargo >/dev/null 2>&1; then
+            echo "Cargo版本: $(cargo --version)"
+          else
+            echo "Cargo版本: 未找到 cargo"
+          fi
+
+          if [[ -d "$RUST_LIB_SRC" ]]; then
+            echo "RUST_LIB_SRC=$RUST_LIB_SRC"
+          else
+            echo "警告: RUST_LIB_SRC 不存在: $RUST_LIB_SRC"
+          fi
+
           pahole_version=$(pahole --version 2>/dev/null | head -n1)
           [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
           
-          export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
           
           cd kernel_workspace/common
           
