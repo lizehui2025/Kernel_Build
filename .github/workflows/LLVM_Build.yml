@@ -33,7 +33,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build ccache python3 \
-            libelf-dev libffi-dev build-essential zlib1g-dev
+            libelf-dev libffi-dev build-essential zlib1g-dev lld
 
       - name: 🤖 Download TensorFlow C API (MLGO 核心依赖)
         # MLGO Development 模式需要 TF 的动态库
