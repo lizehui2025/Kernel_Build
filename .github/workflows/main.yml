@@ -85,16 +85,6 @@ on:
         type: boolean
         default: 'false'
 
-      kpm_enable:
-        description: '是否开启kpm(builtin-使用(re)sukisu内置kpm, kpn-使用独立kpm实现(支持任意KSU/面具环境); 不需要可保持默认关闭)'
-        required: true
-        type: choice
-        default: 'false'
-        options:
-          - 'false'
-          - 'builtin'
-          - 'kpn'
-
       lz4_enable:
         description: '是否安装 lz4 1.10.0+zstd 1.5.7 补丁'
         required: true
@@ -176,6 +166,12 @@ on:
         required: true
         type: boolean
         default: 'false'
+
+      mem_opt_patches:
+        description: 'Enable memory/scheduler optimization patches (from WildKernels)'
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -789,6 +785,53 @@ jobs:
           echo "CONFIG_LRNG_IRQ=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LRNG_CONTINUOUS_COMPRESSION_ENABLED=y" >> ./common/arch/arm64/configs/gki_defconfig
 
+      - name: Apply Memory & Scheduler Optimization Patches
+        if: inputs.mem_opt_patches
+        working-directory: kernel_workspace/common
+        run: |
+          echo "Applying WildKernels optimization patches..."
+          PATCHES_DIR="../wildkernels_patches/common"
+
+          apply_patch() {
+            local patch="$1"
+            if [ -f "$PATCHES_DIR/$patch" ]; then
+              patch -p1 --forward < "$PATCHES_DIR/$patch" && \
+                echo "✅ $patch" || echo "⚠️ $patch (skipped/conflict)"
+            else
+              echo "⚠️ $patch not found, skipping"
+            fi
+          }
+
+          apply_patch "optimized_mem_operations.patch"
+          apply_patch "file_struct_8bytes_align.patch"
+          apply_patch "reduce_cache_pressure.patch"
+          apply_patch "mem_opt_prefetch.patch"
+          apply_patch "optimise_memcmp.patch"
+          apply_patch "minimise_wakeup_time.patch"
+          apply_patch "int_sqrt.patch"
+          apply_patch "force_tcp_nodelay.patch"
+          apply_patch "reduce_gc_thread_sleep_time.patch"
+          apply_patch "add_timeout_wakelocks_globally.patch"
+          apply_patch "f2fs_reduce_congestion.patch"
+          apply_patch "reduce_freeze_timeout.patch"
+          apply_patch "clear_page_16bytes_align.patch"
+          apply_patch "add_limitation_scaling_min_freq.patch"
+          apply_patch "re_write_limitation_scaling_min_freq.patch"
+          apply_patch "adjust_cpu_scan_order.patch"
+          apply_patch "avoid_extra_s2idle_wake_attempts.patch"
+          apply_patch "disable_cache_hot_buddy.patch"
+          apply_patch "f2fs_enlarge_min_fsync_blocks.patch"
+          apply_patch "increase_ext4_default_commit_age.patch"
+          apply_patch "increase_sk_mem_packets.patch"
+          apply_patch "reduce_pci_pme_wakeups.patch"
+          apply_patch "silence_irq_cpu_logspam.patch"
+          apply_patch "silence_system_logspam.patch"
+          apply_patch "use_unlikely_wrap_cpufreq.patch"
+
+          echo "✅ Optimization patches applied"
+
+
+
       - name: 🔧 Set Kernel name (设置内核名称)
         run: |
           cd kernel_workspace
@@ -888,18 +931,6 @@ jobs:
           
           echo "内核编译完成！"        
           df -h
-
-      - name: 应用KPM并修补内核
-        run: |
-          if [[ ${{ github.event.inputs.kpm_enable }} == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
-            echo "正在应用KPM并修补内核..."
-            cd kernel_workspace/common/out/arch/arm64/boot
-            curl -LO https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux
-            chmod +x patch_linux
-            ./patch_linux
-            rm -f Image
-            mv oImage Image
-          fi
           
       - name: 克隆 AnyKernel3 并打包
         run: |
@@ -936,13 +967,6 @@ jobs:
           else
             zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ env.KERNEL_NAME }}.zip ./*
           fi
-
-      - name: 上传 Ccache 调试日志
-        if: always() && inputs.ccache_debug
-        uses: actions/upload-artifact@v4
-        with:
-          name: ccache-debug-log
-          path: ${{ github.workspace }}/kernel_workspace/ccache.log
 
       - name: 上传 ZIP 工件
         uses: actions/upload-artifact@v4
