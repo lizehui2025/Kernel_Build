@@ -803,7 +803,11 @@ jobs:
           
           # 核心编译参数区
           # KCFLAGS 走 clang driver，可以使用 -mllvm
-          ML_FLAGS="-mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release -mllvm -enable-ext-tsp-block-placement=1"
+           if [[ "${{ github.event.inputs.clang_version }}" == "clang19" || "${{ github.event.inputs.clang_version }}" == "clang20" ]]; then
+           ML_FLAGS="-mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release -mllvm -enable-ext-tsp-block-placement=1"
+          else
+           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1"
+          fi          
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
           
           # KBUILD_LDFLAGS 直接传给 ld.lld，不能使用 -Wl,
