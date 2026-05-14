@@ -1,0 +1,105 @@
+name: Build Full LLVM 19.1.7 (with MLGO & Polly)
+
+on:
+  workflow_dispatch: # 支持手动触发编译
+
+env:
+  LLVM_VERSION: "llvmorg-19.1.7"
+  TF_VERSION: "2.15.0" # MLGO 依赖的 TensorFlow C API 版本
+
+jobs:
+  build-llvm:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 🧽 Free Up Disk Space (极限清理磁盘)
+        # GitHub Runner 默认空间不够，必须卸载掉不需要的巨型环境
+        run: |
+          echo "Starting disk cleanup..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          df -h
+
+      - name: 💾 Setup Swap Space (防止 OOM 内存溢出)
+        # LLVM 开启 ThinLTO 后链接阶段极度吃内存，挂载 8G Swap 保命
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: 📦 Install Build Dependencies (安装编译依赖)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build ccache python3 \
+            libelf-dev libffi-dev build-essential zlib1g-dev
+
+      - name: 🤖 Download TensorFlow C API (MLGO 核心依赖)
+        # MLGO Development 模式需要 TF 的动态库
+        run: |
+          mkdir -p ${{ github.workspace }}/tf_c_api
+          cd ${{ github.workspace }}/tf_c_api
+          wget -q https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${{ env.TF_VERSION }}.tar.gz
+          tar -xzf libtensorflow-cpu-linux-x86_64-${{ env.TF_VERSION }}.tar.gz
+          # 建立软链接，防止某些版本 CMake 找不到
+          sudo cp -r lib/* /usr/local/lib/
+          sudo cp -r include/* /usr/local/include/
+          sudo ldconfig
+
+      - name: 📥 Checkout LLVM Source (拉取 LLVM 源码)
+        uses: actions/checkout@v4
+        with:
+          repository: llvm/llvm-project
+          ref: ${{ env.LLVM_VERSION }}
+          path: llvm-project
+
+      - name: ⚡ Setup Ccache (配置编译缓存)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-llvm-${{ env.LLVM_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-llvm-${{ env.LLVM_VERSION }}-
+
+      - name: 🛠️ Configure LLVM via CMake (生成编译配置)
+        run: |
+          cd llvm-project
+          mkdir build && cd build
+          
+          # 注意：这里我们仅构建 AArch64 和 ARM 后端以节省时间，如果有需要可以加上 X86
+          cmake -G Ninja ../llvm \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="clang;lld;polly;clang-tools-extra" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
+            -DLLVM_ENABLE_LTO=Thin \
+            -DLLVM_ENABLE_LLD=ON \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DLLVM_PARALLEL_LINK_JOBS=1 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DLLVM_ENABLE_MLGO=ON \
+            -DTENSORFLOW_C_DIR=${{ github.workspace }}/tf_c_api \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/llvm-install
+
+      - name: 🏗️ Build LLVM (开始编译)
+        run: |
+          cd llvm-project/build
+          # 限制并发数，稳妥起见留一点余量
+          ninja -j$(nproc) install
+
+      - name: 🗜️ Package Toolchain (打包工具链)
+        run: |
+          cd ${{ github.workspace }}
+          tar -cJf llvm-19.1.7-android-toolchain.tar.xz -C llvm-install .
+
+      - name: 📤 Upload Artifact (上传编译结果)
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-19.1.7-toolchain
+          path: ${{ github.workspace }}/llvm-19.1.7-android-toolchain.tar.xz
+          retention-days: 7
