@@ -846,7 +846,7 @@ jobs:
             ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             HOSTLD=ld.lld \
             O=out \
-            KCFLAGS="$OPT_KCFLAGS ${EXTRA_CFLAGS:-} -mcpu=oryon-1" \
+            KCFLAGS="$OPT_KCFLAGS ${EXTRA_CFLAGS:-} -mtune=oryon-1" \
             $ABI_FLAGS \
             Image
           
