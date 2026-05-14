@@ -67,8 +67,13 @@ jobs:
           cd llvm-project
           mkdir build && cd build
           
-          # 注意：这里我们仅构建 AArch64 和 ARM 后端以节省时间，如果有需要可以加上 X86
+          # 加入 C 和 CXX 编译器环境变量，强行使用 clang
+          export CC=clang
+          export CXX=clang++
+          
           cmake -G Ninja ../llvm \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=Release \
             -DLLVM_ENABLE_PROJECTS="clang;lld;polly;clang-tools-extra" \
             -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
