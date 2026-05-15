@@ -292,7 +292,7 @@ jobs:
           # 根据输入选择对应的 Clang 版本
           if [[ ${{ github.event.inputs.clang_version }} == "clang20" ]]; then
             echo "获取 Clang 20."
-            mkdir -p clang18 &&
+            mkdir -p clang20 &&
             curl -L "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang20-r547379/clang-r547379.zip" -o clang.zip &&
             unzip -q clang.zip -d clang18 &&
             rm -rf clang.zip &
