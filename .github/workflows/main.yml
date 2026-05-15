@@ -441,7 +441,8 @@ jobs:
           echo "⬇️ 克隆所需补丁..."
 
           git clone https://github.com/mrcxlinux/kernel_patches.git
-          git clone --depth=1 https://github.com/TheWildJames/kernel_patches.git
+          git clone --depth=1 https://github.com/TheWildJames/kernel_patches.git wildkernels_patches &
+          wait
 
           echo "📝 复制补丁文件..."
 
