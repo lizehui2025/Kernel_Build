@@ -810,8 +810,12 @@ jobs:
            ML_FLAGS="-mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release -mllvm -enable-ext-tsp-block-placement=1"
           else
            ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1"
-          fi          
+          fi
+          if [ "${{ github.event.inputs.clang_version }}" == "zyc-clang" ]; then
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error -mcpu=oryon-1"
+          else
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
+          fi
           
           # KBUILD_LDFLAGS 直接传给 ld.lld，不能使用 -Wl,
           # 保留较稳的 LTO/链接优化，删除风险较高或兼容性较差的 LTO 内部 pass
