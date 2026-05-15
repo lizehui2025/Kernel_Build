@@ -64,7 +64,7 @@ on:
         default: 'clang19'
         options:
           - 'clang19'
-          - 'llvm19_1_7'
+          - 'zyc-clang'
           - 'neutron'
           - 'aosp_clang'
           - 'clang20'
@@ -321,12 +321,15 @@ jobs:
             unzip -q build-tools.zip &&
             rm -rf build-tools.zip &
 
-          elif [[ ${{ github.event.inputs.clang_version }} == "llvm19_1_7" ]]; then
+          elif [[ ${{ github.event.inputs.clang_version }} == "zyc-clang" ]]; then
             echo "获取官方 LLVM 19.1.7 kernel slim 工具链."
-            mkdir -p llvm19_1_7
-            aria2c -s16 -x16 -k1M https://www.kernel.org/pub/tools/llvm/files/llvm-19.1.7-x86_64.tar.xz -o llvm-19.1.7.tar.xz &&
-            tar -C llvm19_1_7 --strip-components=1 -xf llvm-19.1.7.tar.xz &&
-            rm -rf llvm-19.1.7.tar.xz &
+            echo "Cache miss — downloading ZyCromerZ Clang 19..."
+            mkdir -p zyc-clang
+            aria2c -x16 -s16 -k1M -j16 --retry-wait=5 --max-tries=10 \
+              -d /dev/shm -o zyc-clang.tar.gz \
+              "https://github.com/ZyCromerZ/Clang/releases/download/19.0.0git-20240723-release/Clang-19.0.0git-20240723.tar.gz"
+            tar -C zyc-clang -zxf /dev/shm/zyc-clang.tar.gz
+            rm -f /dev/shm/zyc-clang.tar.gz
 
             echo "正在克隆 Rust 1.82.0 工具链."
             mkdir -p rust
@@ -738,9 +741,9 @@ jobs:
             export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
             export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
 
-          elif [[ "${{ github.event.inputs.clang_version }}" == "llvm19_1_7" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/llvm19_1_7/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
-            export CLANG_DIR="$WORKDIR/kernel_workspace/llvm19_1_7/bin"
+          elif [[ "${{ github.event.inputs.clang_version }}" == "zyc-clang" ]]; then
+            export PATH="$WORKDIR/kernel_workspace/zyc-clang/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
+            export CLANG_DIR="$WORKDIR/kernel_workspace/zyc-clang/bin"
 
           elif [[ "${{ github.event.inputs.clang_version }}" == "aosp_clang" ]]; then
             export PATH="$WORKDIR/kernel_workspace/clang-aosp/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
@@ -751,8 +754,8 @@ jobs:
             export CLANG_DIR="$WORKDIR/kernel_workspace/neutron-clang/bin"
 
           elif [[ "${{ github.event.inputs.clang_version }}" == "clang20" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/clang18/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            export CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
+            export PATH="$WORKDIR/kernel_workspace/clang20/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
+            export CLANG_DIR="$WORKDIR/kernel_workspace/clang20/bin"
 
           else
             export PATH="$WORKDIR/kernel_workspace/clang18/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
