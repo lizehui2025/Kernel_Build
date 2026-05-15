@@ -441,6 +441,7 @@ jobs:
           echo "⬇️ 克隆所需补丁..."
 
           git clone https://github.com/mrcxlinux/kernel_patches.git
+          git clone --depth=1 https://github.com/TheWildJames/kernel_patches.git
 
           echo "📝 复制补丁文件..."
 
@@ -530,6 +531,7 @@ jobs:
           echo "CONFIG_IP_SET_LIST_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP6_NF_NAT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_WIREGUARD=y" >> ./common/arch/arm64/configs/gki_defconfig
           cd common
           wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/other_patch/config.patch
           patch -p1 -F 3 < config.patch || true
@@ -812,7 +814,7 @@ jobs:
            ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1"
           fi
           if [ "${{ github.event.inputs.clang_version }}" == "zyc-clang" ]; then
-          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error -mcpu=oryon-1"
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error -mtune=oryon-1"
           else
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
           fi
