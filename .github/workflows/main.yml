@@ -64,7 +64,6 @@ on:
         default: 'clang19'
         options:
           - 'clang19'
-          - 'zyc-clang'
           - 'neutron'
           - 'aosp_clang'
           - 'clang20'
@@ -321,28 +320,6 @@ jobs:
             unzip -q build-tools.zip &&
             rm -rf build-tools.zip &
 
-          elif [[ ${{ github.event.inputs.clang_version }} == "zyc-clang" ]]; then
-            echo "获取官方 LLVM 19.1.7 kernel slim 工具链."
-            echo "Cache miss — downloading ZyCromerZ Clang 19..."
-            mkdir -p zyc-clang
-            aria2c -x16 -s16 -k1M -j16 --retry-wait=5 --max-tries=10 \
-              -d /dev/shm -o zyc-clang.tar.gz \
-              "https://github.com/ZyCromerZ/Clang/releases/download/19.0.0git-20240723-release/Clang-19.0.0git-20240723.tar.gz"
-            tar -C zyc-clang -zxf /dev/shm/zyc-clang.tar.gz
-            rm -f /dev/shm/zyc-clang.tar.gz
-
-            echo "正在克隆 Rust 1.82.0 工具链."
-            mkdir -p rust
-            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
-            unzip -q rust.zip -d rust &&
-            rm -rf rust.zip &
-
-            echo "获取官方 Google Build Tools."
-            mkdir -p build-tools
-            curl -L "https://android.googlesource.com/kernel/prebuilts/build-tools/+archive/refs/heads/main/linux-x86.tar.gz" -o build-tools.tar.gz &&
-            tar -C build-tools -zxf build-tools.tar.gz &&
-            rm -rf build-tools.tar.gz &
-
           elif [[ ${{ github.event.inputs.clang_version }} == "neutron" ]]; then
             echo "获取 Neutron Clang."
             mkdir -p neutron-clang
@@ -498,7 +475,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
           
-          echo "CONFIG_LLVM_POLLY=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CFI_PERMISSIVE=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y" >> ./common/arch/arm64/configs/gki_defconfig
           
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
@@ -744,9 +721,6 @@ jobs:
             export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
             export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
 
-          elif [[ "${{ github.event.inputs.clang_version }}" == "zyc-clang" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/zyc-clang/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
-            export CLANG_DIR="$WORKDIR/kernel_workspace/zyc-clang/bin"
 
           elif [[ "${{ github.event.inputs.clang_version }}" == "aosp_clang" ]]; then
             export PATH="$WORKDIR/kernel_workspace/clang-aosp/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
@@ -814,8 +788,8 @@ jobs:
           else
            ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1"
           fi
-          if [ "${{ github.event.inputs.clang_version }}" == "zyc-clang" ]; then
-          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error -mtune=oryon-1"
+          if [ "${{ github.event.inputs.clang_version }}" == "clang20" ]; then
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error -fno-sanitize-kcfi-arity"
           else
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
           fi
