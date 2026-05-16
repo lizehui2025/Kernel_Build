@@ -43,19 +43,6 @@ on:
         description: " 自定义构建时间- 仅在取消勾选'保持原设置'时有效(不懂请保持默认)"
         required: false
         default: ''
-
-      ksu_type:
-        description: 'KernelSU分支(SukiSU Ultra/ReSukiSU/KernelSU Next/MKSU/KSU(原版)/无内置KSU,默认SukiSU Ultra)'
-        required: true
-        type: choice
-        default: 'none'
-        options:
-          - 'sukisu'
-          - 'resukisu'
-          - 'ksunext'
-          - 'mksu'
-          - 'ksu'
-          - 'none'
           
       clang_version:
         description: '选择编译内核的Clang版本'
@@ -64,8 +51,6 @@ on:
         default: 'clang19'
         options:
           - 'clang19'
-          - 'neutron'
-          - 'aosp_clang'
           - 'clang20'
           - 'clang18'
 
@@ -474,7 +459,7 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LLVM_POLLY=y" >> ./common/arch/arm64/configs/gki_defconfig
           
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
             echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -531,6 +516,8 @@ jobs:
             sed -i 's/CONFIG_DEFAULT_CUBIC=y/# CONFIG_DEFAULT_CUBIC is not set/g' ./common/arch/arm64/configs/gki_defconfig
             # 2. 开启 DEFAULT_BBR 选项
             echo "CONFIG_DEFAULT_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_NET_SCH_FQ=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo 'CONFIG_DEFAULT_NET_SCH="fq"' >> ./common/arch/arm64/configs/gki_defconfig
             # 3. 写入带有双引号的字符串（注意外面用单引号，里面用双引号）
             echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> ./common/arch/arm64/configs/gki_defconfig
           else
@@ -699,6 +686,28 @@ jobs:
           echo "✅ Optimization patches applied"
 
 
+      - name: Enable Wakelock Blocker
+        working-directory: kernel_workspace/common
+        run: |
+          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
+          CONFIG_PM_WAKELOCKS=y
+          CONFIG_PM_WAKELOCKS_GC=y
+          CONFIG_PM_WAKELOCKS_LIMIT=100
+          EOF
+          WAKELOCK_C="kernel/power/wakelock.c"
+          if [ -f "$WAKELOCK_C" ]; then
+            cat >> "$WAKELOCK_C" << 'WLEOF'
+          /* palaziks: wakelock blocker list */
+          static const char * const blocked_wakelocks[] = {
+              "WLAN_pm_wlock",
+              "IPA_WS",
+              "qcom_rx_wakelock",
+              "event0",
+          };
+          WLEOF
+          fi
+
+
 
       - name: 🔧 Set Kernel name (设置内核名称)
         run: |
@@ -787,7 +796,7 @@ jobs:
            ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1"
           fi
           if [ "${{ github.event.inputs.clang_version }}" == "clang20" ]; then
-          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error -fno-sanitize-kcfi-arity"
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
           echo "CONFIG_CFI_PERMISSIVE=y" >> ./arch/arm64/configs/gki_defconfig
           else
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
