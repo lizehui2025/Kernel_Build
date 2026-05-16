@@ -294,7 +294,7 @@ jobs:
             echo "获取 Clang 20."
             mkdir -p clang20 &&
             curl -L "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang20-r547379/clang-r547379.zip" -o clang.zip &&
-            unzip -q clang.zip -d clang18 &&
+            unzip -q clang.zip -d clang20 &&
             rm -rf clang.zip &
 
             echo "获取匹配的 Google Build Tools." &&
