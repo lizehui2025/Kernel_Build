@@ -794,10 +794,10 @@ jobs:
            ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1"
           fi
           if [ "${{ github.event.inputs.clang_version }}" == "clang20" ]; then
-          OPT_KCFLAGS="-O2 -fno-strict-aliasing $ML_FLAGS -Wno-error"
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
           echo "CONFIG_CFI_PERMISSIVE=y" >> ./arch/arm64/configs/gki_defconfig
           else
-          OPT_KCFLAGS="-O2 -fno-strict-aliasing $ML_FLAGS -Wno-error"
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
           fi
           
           # KBUILD_LDFLAGS 直接传给 ld.lld，不能使用 -Wl,
