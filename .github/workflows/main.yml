@@ -140,12 +140,6 @@ on:
         type: boolean
         default: 'true'
 
-      mem_opt_patches:
-        description: 'Enable memory/scheduler optimization patches (from WildKernels)'
-        required: true
-        type: boolean
-        default: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -579,10 +573,6 @@ jobs:
           echo "CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y" >> ./common/arch/arm64/configs/gki_defconfig
            
-          SU_C="common/kernel/sched/cpufreq_schedutil.c"
-          if [ -f "$SU_C" ]; then
-            sed -i 's/LATENCY_MULTIPLIER\s*=\s*1000/LATENCY_MULTIPLIER = 1000/' "$SU_C" 2>/dev/null || true
-          fi
 
       - name: 准备 CPU 优化 (Oryon SM8750)
         if: inputs.cpu_opt
