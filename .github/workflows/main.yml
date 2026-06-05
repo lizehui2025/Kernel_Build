@@ -351,43 +351,55 @@ jobs:
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
 
-      - name: 提取并配置 Oplus 官方 AutoFDO Profile
+      - name: 提取并配置 Google 官方 6.6 系 AutoFDO Profile
         if: inputs.autofdo_enable
         run: |
-          echo "正在配置 AutoFDO Profile..."
-          cd kernel_workspace
-          OPLUS_AFDO_PATH="common/android/gki/aarch64/afdo/kernel.afdo"
-          if [ -f "$OPLUS_AFDO_PATH" ]; then
-            echo "成功检测到 Oplus 源码自带的 kernel.afdo，完美匹配当前内核，直接提取使用！"
-            cp "$OPLUS_AFDO_PATH" kernel_aarch64.afdo
-          else
-            echo "警告：未在源码目录找到配置文件。尝试从 AOSP 官方仓库拉取作为备选..."
+         # echo "正在配置 6.6 系 AutoFDO Profile..."
+         # cd kernel_workspace
+          
+         # OPLUS_AFDO_PATH="common/android/gki/aarch64/afdo/kernel.afdo"
+          
+         # if [ -f "$OPLUS_AFDO_PATH" ]; then
+         #  echo "成功检测到 Oplus 源码自带的 kernel.afdo，完美匹配当前内核，直接提取使用！"
+         #   cp "$OPLUS_AFDO_PATH" kernel_aarch64.afdo
+         # else
+         #   echo "警告：未在源码目录找到配置文件。正在尝试从 Google AOSP 远端拉取 6.6 精确分支..."
+            
+            # 尝试组合精准分支名，例如 android6.6-6.6.89
             AOSP_BRANCH="${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}"
             AFDO_URL="https://android.googlesource.com/kernel/common/+/refs/heads/$AOSP_BRANCH/android/gki/aarch64/afdo/kernel.afdo?format=TEXT"
+            
             HTTP_CODE=$(curl -s -w "%{http_code}" -o kernel_afdo_base64.txt "$AFDO_URL")
+            
             if [ "$HTTP_CODE" -eq 200 ]; then
-              echo "成功从 AOSP 拉取 $AOSP_BRANCH 分支配置！"
+              echo "成功从 AOSP 抓取精准分支 [$AOSP_BRANCH] 的 AFDO 配置！"
               base64 -d kernel_afdo_base64.txt > kernel_aarch64.afdo
             else
-              echo "回退拉取 AOSP mainline 基线配置..."
-              FALLBACK_URL="https://android.googlesource.com/kernel/common/+/refs/heads/android-mainline/android/gki/aarch64/afdo/kernel.afdo?format=TEXT"
-              FALLBACK_CODE=$(curl -s -w "%{http_code}" -o kernel_afdo_base64_fallback.txt "$FALLBACK_URL")
+              echo "未找到精准分支配置（状态码: $HTTP_CODE），安全回退：开始拉取 Google 官方 android6.6 稳定通用分支..."
+              
+              # 安全锁定：强制只在 6.6 谱系内寻找通用配置
+              STABLE_66_URL="https://android.googlesource.com/kernel/common/+/refs/heads/android6.6/android/gki/aarch64/afdo/kernel.afdo?format=TEXT"
+              FALLBACK_CODE=$(curl -s -w "%{http_code}" -o kernel_afdo_base64_fallback.txt "$STABLE_66_URL")
+              
               if [ "$FALLBACK_CODE" -eq 200 ]; then
-                  base64 -d kernel_afdo_base64_fallback.txt > kernel_aarch64.afdo
+                echo "成功获取 Google 官方 android6.6 通用分支配置！"
+                base64 -d kernel_afdo_base64_fallback.txt > kernel_aarch64.afdo
               else
-                  echo "::error::备选 AOSP Profile 也拉取失败！"
-                  exit 1
+                echo "::error::未能在 Google 远端找到任何匹配的 6.6 系 AFDO 配置文件！"
+                exit 1
               fi
             fi
+            # 保持环境整洁，清理临时 Base64 文本
             rm -f kernel_afdo_base64*.txt
           fi
+          
+          # 验证最终生成的 afdo 文件是否合法（大小是否大于0）
           if [ -s kernel_aarch64.afdo ]; then
-            echo "AutoFDO 配置文件就绪！"
+            echo "的的确定：6.6 系 AutoFDO 配置文件已就绪！"
           else
-            echo "::error::AutoFDO 配置文件提取或下载失败，文件为空！"
+            echo "::error::AutoFDO 配置文件大小异常，构建终止，防止后续引发 Bootloop！"
             exit 1
           fi
-
       - name: 🔧 Setup Patches | 配置补丁
         run: |
           cd kernel_workspace
@@ -721,7 +733,7 @@ jobs:
           OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
           echo "CONFIG_CFI_PERMISSIVE=y" >> ./arch/arm64/configs/gki_defconfig
           else
-          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing -fomit-frame-pointer $ML_FLAGS -Wno-error"
           fi
           
           # KBUILD_LDFLAGS 直接传给 ld.lld，不能使用 -Wl,
