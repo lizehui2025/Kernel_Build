@@ -570,11 +570,64 @@ jobs:
         if: inputs.bore_enable
         working-directory: kernel_workspace/common
         run: |
-          echo "CONFIG_SCHED_BORE=y" >> arch/arm64/configs/gki_defconfig
+          set +e
           BORE_URL="https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/patches/bore.patch"
-          wget -qO /tmp/bore.patch "$BORE_URL"
-          patch -p1 -F 3 < /tmp/bore.patch
-          echo "✅ BORE scheduler applied"
+          wget -q --tries=3 --timeout=15 -O /tmp/bore.patch "$BORE_URL"
+          wget_rc=$?
+          set -e
+
+          if [[ $wget_rc -ne 0 || ! -s /tmp/bore.patch ]]; then
+            echo "⚠️  Failed to fetch bore.patch from primary URL ($BORE_URL)."
+            echo "    Trying firelzhd/bore-sched-ext upstream (linux-6.6.y-bore)..."
+            UP_URL="https://github.com/firelzhd/bore-sched-ext/raw/linux-6.6.y-bore/bore.patch"
+            wget -q --tries=3 --timeout=15 -O /tmp/bore.patch "$UP_URL" || true
+            if [[ ! -s /tmp/bore.patch ]]; then
+              echo "::error::Cannot fetch bore.patch from any source. Aborting step."
+              exit 1
+            fi
+          fi
+
+          # 上下文适配:OnePlus sm8750 GKI v16.0.0 (6.6.89) 把 EEVDF 的
+          # base_slice 默认值从上游 0.70 msec / 700000ULL 改成了
+          # 0.75 msec / 750000ULL。bore.patch Hunk #2 原样应用会失败,
+          # 这里把 patch 里残留的上游字面值修正成 sm8750 树的真实值,
+          # 让 hunk context 命中。
+          #
+          # sed 命中点已在 bore.patch 中验证,不影响其它数值:
+          #   - "0.70 msec" 仅出现在注释行(fair.c doc)
+          #   - "= 700000ULL;" 仅出现在 2 行初始化(待被 patch 替换的旧值)
+          #   - 其它如 2000000 / 1000000000ULL / 6000000ULL 不被这两个模式命中。
+          sed -i -E \
+            -e 's/\b0\.70 msec\b/0.75 msec/g' \
+            -e 's/= 700000ULL;/= 750000ULL;/g' \
+            /tmp/bore.patch
+
+          # 前次失败可能残留 .rej/.orig,清掉避免污染
+          find . \( -name '*.rej' -o -name '*.orig' \) -delete 2>/dev/null || true
+
+          # 先不写 defconfig:patch 成功并通过真实校验后再写,
+          # 否则在 patch 失败时 CONFIG_SCHED_BORE=y 会被 olddefconfig 静默丢弃,
+          # 造成"用户以为启用但实际没有"的假冒状态。
+          if patch -p1 --forward -F 3 < /tmp/bore.patch; then
+            # 真实落地校验(类似 SUSFS 的 SUS_MAP guard):
+            # bore.patch 在 fair.c Hunk #2 注入了 nsecs_per_tick / update_sysctl,
+            # 如果 Hunk #2 没应用上,这两个符号就不存在,直接 exit 1。
+            if grep -q 'nsecs_per_tick' kernel/sched/fair.c \
+               && grep -q 'update_sysctl' kernel/sched/fair.c; then
+              echo "CONFIG_SCHED_BORE=y" >> arch/arm64/configs/gki_defconfig
+              echo "✅ BORE scheduler applied & symbols verified (nsecs_per_tick/update_sysctl found)"
+            else
+              echo "::error::BORE patch reported success but fair.c key symbols missing"
+              echo "--- fair.c context around sysctl_sched_base_slice ---"
+              grep -n -A5 -B5 'sysctl_sched_base_slice' kernel/sched/fair.c | head -40
+              exit 1
+            fi
+          else
+            echo "::error::BORE patch failed to apply. Dumping rejects:"
+            find . -name '*.rej' -exec sh -c \
+              'echo "==== {} ===="; cat "{}"' \;
+            exit 1
+          fi
 
       - name: Apply Memory & Scheduler Optimization Patches
         working-directory: kernel_workspace/common
