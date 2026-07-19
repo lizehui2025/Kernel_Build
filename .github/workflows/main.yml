@@ -621,6 +621,7 @@ jobs:
           echo "✅ Optimization patches applied"
 
       - name: Apply BBRv3
+        if: inputs.bbr_enable != 'false'
         working-directory: kernel_workspace/common
         run: |
           echo "::group::Apply BBRv3 patches"
