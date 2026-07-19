@@ -140,6 +140,12 @@ on:
         type: boolean
         default: 'true'
 
+      bore_enable:
+        description: 'Enable BORE Scheduler (Burst-Oriented Response Enhancer, off by default)'
+        required: true
+        type: boolean
+        default: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -559,6 +565,76 @@ jobs:
           else
             echo "CONFIG_LTO_CLANG_THIN=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
+
+      - name: Apply BORE Scheduler
+        if: inputs.bore_enable
+        working-directory: kernel_workspace/common
+        run: |
+          echo "CONFIG_SCHED_BORE=y" >> arch/arm64/configs/gki_defconfig
+          BORE_URL="https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/patches/bore.patch"
+          wget -qO /tmp/bore.patch "$BORE_URL"
+          patch -p1 -F 3 < /tmp/bore.patch
+          echo "✅ BORE scheduler applied"
+
+      - name: Apply Memory & Scheduler Optimization Patches
+        working-directory: kernel_workspace/common
+        run: |
+          echo "Applying WildKernels optimization patches..."
+          PATCHES_DIR="../wildkernels_patches/common"
+
+          apply_patch() {
+            local patch="$1"
+            if [ -f "$PATCHES_DIR/$patch" ]; then
+              patch -p1 --forward < "$PATCHES_DIR/$patch" && \
+                echo "✅ $patch" || echo "⚠️ $patch (skipped/conflict)"
+            else
+              echo "⚠️ $patch not found, skipping"
+            fi
+          }
+
+          apply_patch "optimized_mem_operations.patch"
+          apply_patch "file_struct_8bytes_align.patch"
+          apply_patch "reduce_cache_pressure.patch"
+          apply_patch "mem_opt_prefetch.patch"
+          apply_patch "optimise_memcmp.patch"
+          apply_patch "minimise_wakeup_time.patch"
+          apply_patch "int_sqrt.patch"
+          apply_patch "force_tcp_nodelay.patch"
+          apply_patch "reduce_gc_thread_sleep_time.patch"
+          apply_patch "add_timeout_wakelocks_globally.patch"
+          apply_patch "f2fs_reduce_congestion.patch"
+          apply_patch "reduce_freeze_timeout.patch"
+          apply_patch "clear_page_16bytes_align.patch"
+          apply_patch "add_limitation_scaling_min_freq.patch"
+          apply_patch "re_write_limitation_scaling_min_freq.patch"
+          apply_patch "adjust_cpu_scan_order.patch"
+          apply_patch "avoid_extra_s2idle_wake_attempts.patch"
+          apply_patch "disable_cache_hot_buddy.patch"
+          apply_patch "f2fs_enlarge_min_fsync_blocks.patch"
+          apply_patch "increase_ext4_default_commit_age.patch"
+          apply_patch "increase_sk_mem_packets.patch"
+          apply_patch "reduce_pci_pme_wakeups.patch"
+          apply_patch "silence_irq_cpu_logspam.patch"
+          apply_patch "silence_system_logspam.patch"
+          apply_patch "use_unlikely_wrap_cpufreq.patch"
+
+          echo "✅ Optimization patches applied"
+
+      - name: Apply BBRv3
+        working-directory: kernel_workspace/common
+        run: |
+          echo "::group::Apply BBRv3 patches"
+          echo "CONFIG_TCP_CONG_ADVANCED=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BBR3=y"     >> arch/arm64/configs/gki_defconfig
+          BBRV3_PATCH="../wildkernels_patches/common/bbrv3/0001-net-tcp-backport-BBRv3-to-${ANDROID_VERSION}-${KERNEL_VERSION}.patch"
+          if [ -f "$BBRV3_PATCH" ]; then
+            patch -p1 -F 3 < "$BBRV3_PATCH"
+            echo "✅ BBRv3 patch applied"
+          else
+            echo "::warning::BBRv3 patch not found at $BBRV3_PATCH — skipping"
+          fi
+          echo "::endgroup::"
+
 
       - name: 配置 ZRAM Writeback
         if: inputs.zram_writeback
