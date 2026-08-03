@@ -266,10 +266,10 @@ jobs:
           sudo apt update &&
           sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache aria2 dos2unix &
           
-          echo "正在克隆源码仓库."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_16.0.0_oneplus_13_6.6.89.zip -o common.zip && 
+          echo "正在克隆源码仓库..."
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_b_16.0.0_oneplus_13_6.6.118.zip -o common.zip && 
           unzip -q common.zip && 
-          mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_v_16.0.0_oneplus_13_6.6.89" common &&
+          mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_b_16.0.0_oneplus_13_6.6.118" common &&
           rm -rf common.zip &
           
           # 根据输入选择对应的 Clang 版本 (已修复未加引号的问题)
