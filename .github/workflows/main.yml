@@ -212,7 +212,7 @@ jobs:
                 DEFAULT_SUFFIX='-android15-8-ge6068c2aa11d-abogki454747580-4k'
               ;;
             oneplus_13 | oneplus_13t | oneplus_ace5_pro | oneplus_ace_6 | realme_GT7 | realme_GT7pro_Speed | realme_GT8)
-                DEFAULT_SUFFIX='-android15-8-g7e1f3c083cc6-abogki467167594-4k'
+                DEFAULT_SUFFIX='-android15-8-g93e223c276e7-abogki500782043-4k'
               ;;
             realme_GT7pro)
                 DEFAULT_SUFFIX='-android15-8-gf4dc45704e54-abogki446052083-4k'
@@ -238,7 +238,7 @@ jobs:
                   KERNEL_TIME='Tue Jul 1 19:48:18 UTC 2025'
                 ;;
               oneplus_13 | oneplus_13t | oneplus_ace5_pro | oneplus_ace_6 | realme_GT7 | realme_GT7pro_Speed | realme_GT8)
-                  KERNEL_TIME='Mon Dec 8 04:00:43 UTC 2025'
+                  KERNEL_TIME='Wed Apr 8 15:08:30 UTC 2026'
                 ;;
               realme_GT7pro)
                   KERNEL_TIME='Fri Sep 19 06:13:40 UTC 2025'
@@ -587,20 +587,10 @@ jobs:
             fi
           fi
 
-          # 上下文适配:OnePlus sm8750 GKI v16.0.0 (6.6.89) 把 EEVDF 的
-          # base_slice 默认值从上游 0.70 msec / 700000ULL 改成了
-          # 0.75 msec / 750000ULL。bore.patch Hunk #2 原样应用会失败,
-          # 这里把 patch 里残留的上游字面值修正成 sm8750 树的真实值,
-          # 让 hunk context 命中。
-          #
-          # sed 命中点已在 bore.patch 中验证,不影响其它数值:
-          #   - "0.70 msec" 仅出现在注释行(fair.c doc)
-          #   - "= 700000ULL;" 仅出现在 2 行初始化(待被 patch 替换的旧值)
-          #   - 其它如 2000000 / 1000000000ULL / 6000000ULL 不被这两个模式命中。
-          sed -i -E \
-            -e 's/\b0\.70 msec\b/0.75 msec/g' \
-            -e 's/= 700000ULL;/= 750000ULL;/g' \
-            /tmp/bore.patch
+          # 6.6.118 的 OnePlus sm8750 树已回归上游 EEVDF 默认值
+          # (0.70 msec / 700000ULL),与 bore.patch 原始 context 一致。
+          # 注:6.6.89 树曾自定义成 0.75 msec / 750000ULL,但 6.6.118 不再如此。
+          # 故无需 sed 适配,直接原样应用即可。
 
           # 前次失败可能残留 .rej/.orig,清掉避免污染
           find . \( -name '*.rej' -o -name '*.orig' \) -delete 2>/dev/null || true
