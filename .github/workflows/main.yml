@@ -887,6 +887,16 @@ jobs:
             export CLANG_AUTOFDO_PROFILE="$AFDO_FILE"
             OPT_KCFLAGS="$OPT_KCFLAGS -fprofile-sample-use=$AFDO_FILE"
             OPT_LDFLAGS="$OPT_LDFLAGS -mllvm -sample-profile-file=$AFDO_FILE"
+
+            # —— 修复 AutoFDO 内联导致的 kallsyms 符号丢失（保持与无 AutoFDO 构建的符号一致）——
+            echo "--- 修复 AutoFDO 符号差异 (noinline) ---"
+            grep -rlE -f "$WORKDIR/autofdo_defs.pat" --include='*.c' \
+              --exclude-dir=.git --exclude-dir=out . > /tmp/afdo_files.txt || true
+            echo "命中源文件: $(wc -l < /tmp/afdo_files.txt)"
+            if [ -s /tmp/afdo_files.txt ]; then
+              xargs -a /tmp/afdo_files.txt sed -E -i -f "$WORKDIR/autofdo_noinline.sed"
+              echo "✅ AutoFDO 符号差异修复完成"
+            fi
           fi
           
           OPLUS_KMI_LIST="android/abi_gki_aarch64_oplus"
