@@ -579,20 +579,14 @@ jobs:
             echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
 
-          # LLVM 18 不含 oryon-1 (2024-06-06 才合入 LLVM 19)。若此时仍要求 CPU 调优,
-          # clang 会在构建中途报 unknown CPU。此处提前拦截并给出明确原因。
-          if [[ "${{ github.event.inputs.cpu_opt }}" == "true" && "${{ github.event.inputs.clang_version }}" == "clang18" ]]; then
-            echo "::error::clang18 不支持 -mcpu=oryon-1, 但 cpu_opt=true。"
-            echo "::error::请将 clang_version 改为 zycromerz/clang19, 或将 cpu_opt 设为 false。"
-            exit 1
-          fi
-
           # Polly 会重新并行化/向量化循环, 可能覆盖 mem_opt_patches 里手工调优过的
           # 循环结构(mem_opt_prefetch / optimise_memcmp / int_sqrt 等)。
           if [[ "${{ github.event.inputs.polly_enable }}" == "true" && "${{ github.event.inputs.mem_opt_patches }}" == "true" ]]; then
             echo "::warning::polly_enable 与 mem_opt_patches 同时开启。"
             echo "::warning::两者都做循环级变换, 建议二选一后用 llvm-objdump -d 对比 Image 指令数再定夺。"
           fi
+          # 注: -mcpu=oryon-1 的可用性不在此处判断, 由"准备 CPU 优化"步骤实测探测
+          # (Google r536225/r510928 不认 oryon-1, 只有 ZyCromerZ 认, 看版本号不准)。
             
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
@@ -878,9 +872,21 @@ jobs:
           echo "# CONFIG_RCU_LAZY_DEFAULT_OFF is not set" >> "$DEFCONFIG"
 
           # 真正的 Oryon codegen 目标。此前该步骤只写 Kconfig, 没有任何 -mcpu,
-          # 导致"CPU 优化"名不副实。LLVM 19+ 才支持 oryon-1 (2024-06-06 合入)。
-          echo "EXTRA_CFLAGS=-mcpu=oryon-1" >> $GITHUB_ENV
-          echo "✅ EXTRA_CFLAGS=-mcpu=oryon-1 (LLVM 19+ 支持 oryon-1)"
+          # 导致"CPU 优化"名不副实。
+          # 是否加 -mcpu=oryon-1 不看版本号、直接问编译器:
+          # Google 的 r536225/r510928 快照早于 oryon 合入点, 会报 unsupported argument,
+          # 只有 ZyCromerZ 认。探不过就干净失败, 不拖到编译 scripts/mod/empty.o 才炸。
+          # 注意 --target=aarch64 必不可少: 不带它时 -mcpu 作用于默认 target(x86),
+          # 再新的 clang 也会误报不支持, 探测结果是错的。
+          if echo 'int oryon_probe(void){return 0;}' | "${CLANG_BIN:?CLANG_BIN 未设置, 请检查工具链安装步骤}/clang" \
+              --target=aarch64-linux-gnu -mcpu=oryon-1 -x c - -c -o /dev/null >/dev/null 2>&1; then
+            echo "EXTRA_CFLAGS=-mcpu=oryon-1" >> $GITHUB_ENV
+            echo "✅ EXTRA_CFLAGS=-mcpu=oryon-1 (当前工具链支持 oryon-1)"
+          else
+            echo "::error::当前工具链 ($CLANG_BIN) 不支持 -mcpu=oryon-1, 但 cpu_opt=true。"
+            echo "::error::仅 ZyCromerZ 支持 oryon-1；请切换 clang_version=zycromerz，或关闭 cpu_opt。"
+            exit 1
+          fi
 
       - name: 启用 LRNG v60
         if: inputs.lrng_enable
