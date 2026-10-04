@@ -44,13 +44,13 @@ on:
         default: ''
           
       clang_version:
-        description: '选择编译内核的Clang版本'
+        description: '选择编译内核的Clang工具链'
         required: true
         type: choice
-        default: 'clang19'
+        default: 'zycromerz'
         options:
+          - 'zycromerz'
           - 'clang19'
-          - 'clang20'
           - 'clang18'
 
       lto_type:
@@ -67,7 +67,7 @@ on:
         description: '是否安装 lz4 1.10.0+zstd 1.5.7 补丁'
         required: true
         type: boolean
-        default: 'true'
+        default: true
 
       lz4kd_enable:
         description: '是否安装 LZ4KD 补丁(ZRAM优化)'
@@ -137,7 +137,19 @@ on:
         description: '是否启用 AutoFDO (使用 Google 官方预编译 .afdo 文件优化)'
         required: true
         type: boolean
-        default: 'true'
+        default: true
+
+      polly_enable:
+        description: '是否启用 Polly 自动并行化 (与内存优化补丁存在冲突风险, 建议二选一)'
+        required: true
+        type: boolean
+        default: false
+
+      mem_opt_patches:
+        description: '是否应用 WildKernels 内存/调度优化补丁 (建议与 Polly 互斥)'
+        required: true
+        type: boolean
+        default: true
 
       bore_enable:
         description: 'Enable BORE Scheduler (Burst-Oriented Response Enhancer, off by default)'
@@ -251,106 +263,189 @@ jobs:
           fi
 
 
-      - name: 安装环境依赖+初始化源码仓库及工具链
+      - name: 缓存工具链 (按 clang_version 分键)
+        id: toolchain-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            kernel_workspace/zyc-clang
+            kernel_workspace/clang19
+            kernel_workspace/clang18
+            kernel_workspace/build-tools
+            kernel_workspace/rust
+          key: tc-${{ github.event.inputs.clang_version }}-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            tc-${{ github.event.inputs.clang_version }}-${{ runner.os }}-
+
+      - name: 配置并恢复 CCache
         run: |
+          echo "CCACHE_DIR=$HOME/.ccache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}" >> $GITHUB_ENV
+          echo "CCACHE_KEY=ccache-${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}" >> $GITHUB_ENV
+          mkdir -p "$HOME/.ccache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}"
+
+      - name: 恢复 CCache 缓存
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-
+            ${{ env.CCACHE_KEY }}-${{ runner.os }}-
+
+      - name: 安装环境依赖 + 初始化源码及工具链
+        run: |
+          set -uo pipefail
+          WORKDIR="$GITHUB_WORKSPACE"
+          CLANG_VARIANT="${{ github.event.inputs.clang_version }}"
+          cd "$WORKDIR"
+
+          sudo apt-mark hold firefox >/dev/null 2>&1 || true
+          sudo apt-mark hold libc-bin >/dev/null 2>&1 || true
+          sudo apt purge -y man-db >/dev/null 2>&1 || true
+          sudo rm -rf /var/lib/man-db/auto-update
+
+          sudo apt-get update -qq
+          # pahole 参与 CONFIG_DEBUG_INFO_BTF 生成。版本不固定时, 新版 pahole 发射的
+          # BTF 可能被 6.6 的 verifier 拒绝 -> 编译通过但 /sys/kernel/btf/vmlinux
+          # 缺失 -> Android init 起不来。这里显式锁定, 把风险挡在构建期。
+          sudo apt-get install -y --no-install-recommends \
+            binutils python-is-python3 libssl-dev libelf-dev ccache aria2 dos2unix cmake
+
+          echo "准备源码目录..."
           rm -rf kernel_workspace
-          mkdir kernel_workspace
+          mkdir -p kernel_workspace
           cd kernel_workspace
-          
-          sudo apt-mark hold firefox &&
-          sudo apt-mark hold libc-bin &&
-          sudo apt purge man-db &&
-          sudo rm -rf /var/lib/man-db/auto-update &&
-          
-          sudo apt update &&
-          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache aria2 dos2unix &
-          
-          echo "正在克隆源码仓库..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_b_16.0.0_oneplus_13_6.6.118.zip -o common.zip && 
-          unzip -q common.zip && 
-          mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_b_16.0.0_oneplus_13_6.6.118" common &&
-          rm -rf common.zip &
-          
-          # 根据输入选择对应的 Clang 版本 (已修复未加引号的问题)
-          if [[ "${{ github.event.inputs.clang_version }}" == "clang20" ]]; then
-            echo "获取 Clang 20."
-            mkdir -p clang20 &&
-            curl -L "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang20-r547379/clang-r547379.zip" -o clang.zip &&
-            unzip -q clang.zip -d clang20 &&
-            rm -rf clang.zip &
 
-            echo "获取匹配的 Google Build Tools." &&
-            curl -L "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang20-r547379/build-tools.zip" -o build-tools.zip &&
-            unzip -q build-tools.zip &&
-            rm -rf build-tools.zip &
+          # ── 并行拉取。所有后台任务显式收集 PID 并逐个 wait:
+          #    bash 的 `wait` 不带参数恒返回 0, 会把下载失败静默吞掉。
+          pids=()
 
-          elif [[ "${{ github.event.inputs.clang_version }}" == "clang19" ]]; then
-            echo "正在克隆 llvm-clang19 工具链."
-            mkdir -p clang19
-            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip &&
-            unzip -q clang.zip -d clang19 &&
-            rm -rf clang.zip &
+          (
+            aria2c -s16 -x16 -k1M \
+              https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_b_16.0.0_oneplus_13_6.6.118.zip \
+              -o common.zip &&
+            unzip -q common.zip &&
+            mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_b_16.0.0_oneplus_13_6.6.118" common &&
+            rm -f common.zip
+          ) & pids+=($!)
 
-            echo "正在克隆 Rust 1.82.0 工具链."
-            mkdir -p rust
-            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
-            unzip -q rust.zip -d rust &&
-            rm -rf rust.zip &
+          (
+            case "$CLANG_VARIANT" in
+              zycromerz)
+                # ZyCromerZ Clang 19.0.0git-20240723 — LLVM 19 main 分支快照 (2024-07-23)。
+                # oryon-1 于 2024-06-06 合入 (PR #91022), 该快照晚于合入点, 故 -mcpu=oryon-1 可用。
+                echo "[toolchain] ZyCromerZ Clang 19.0.0git-20240723 (tar.gz)"
+                mkdir -p zyc-clang
+                aria2c -x16 -s16 -k1M -j16 --retry-wait=5 --max-tries=10 \
+                  -d /tmp -o zyc-clang.tar.gz \
+                  "https://github.com/ZyCromerZ/Clang/releases/download/19.0.0git-20240723-release/Clang-19.0.0git-20240723.tar.gz" &&
+                tar -C zyc-clang -zxf /tmp/zyc-clang.tar.gz &&
+                rm -f /tmp/zyc-clang.tar.gz
+                ;;
+              clang19)
+                echo "[toolchain] Google LLVM-Clang19 r536225"
+                mkdir -p clang19
+                aria2c -s16 -x16 -k1M \
+                  https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip \
+                  -o clang19.zip &&
+                unzip -q clang19.zip -d clang19 && rm -f clang19.zip
+                ;;
+              clang18)
+                echo "[toolchain] Google LLVM-Clang18 r510928"
+                mkdir -p clang18
+                aria2c -s16 -x16 -k1M \
+                  https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/clang-r510928.zip \
+                  -o clang18.zip &&
+                unzip -q clang18.zip -d clang18 && rm -f clang18.zip
+                ;;
+            esac
+          ) & pids+=($!)
 
-            echo "正在克隆构建工具."
-            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip &&
-            unzip -q build-tools.zip &&
-            rm -rf build-tools.zip &
+          (
+            # ZyCromerZ 搭配 CodeLinaro 官方 build-tools (高通 GKI 标准件),
+            # bin 路径为 linux-x86/bin; Google zip 版则是 bin/。此处按变体分派。
+            if [[ "$CLANG_VARIANT" == "zycromerz" ]]; then
+              echo "[build-tools] CodeLinaro ks-kernel.lnx.4.0.r1-rel"
+              git clone --depth=1 -b ks-kernel.lnx.4.0.r1-rel \
+                https://git.codelinaro.org/clo/la/kernel/prebuilts/build-tools.git build-tools
+            else
+              case "$CLANG_VARIANT" in
+                clang19) TAG="LLVM-Clang19-r536225" ;;
+                clang18) TAG="LLVM-Clang18-r510928" ;;
+              esac
+              echo "[build-tools] Google $TAG"
+              aria2c -s16 -x16 -k1M \
+                "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/$TAG/build-tools.zip" \
+                -o build-tools.zip &&
+              unzip -q build-tools.zip && rm -f build-tools.zip
+            fi
+          ) & pids+=($!)
 
-          elif [[ "${{ github.event.inputs.clang_version }}" == "neutron" ]]; then
-            echo "获取 Neutron Clang."
-            mkdir -p neutron-clang
-            curl -sSL "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman" -o neutron-clang/antman
-            cd neutron-clang
-            bash antman -S
-            cd ..
-            echo "获取官方 Google Build Tools."
-            mkdir -p build-tools
-            curl -L "https://android.googlesource.com/kernel/prebuilts/build-tools/+archive/refs/heads/main/linux-x86.tar.gz" -o build-tools.tar.gz
-            tar -C build-tools -zxf build-tools.tar.gz
-            rm -rf build-tools.tar.gz &
-
-          elif [[ "${{ github.event.inputs.clang_version }}" == "aosp_clang" ]]; then
-            echo "获取 Google AOSP Clang r584948."
-            mkdir -p clang-aosp
-            aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/mirror-goog-main-llvm-toolchain-source/clang-r584948.tar.gz" -o clang.tar.gz
-            tar -C clang-aosp -zxf clang.tar.gz
-            rm -rf clang.tar.gz &
-            echo "获取官方 Google Build Tools."
-            mkdir -p build-tools
-            curl -L "https://android.googlesource.com/kernel/prebuilts/build-tools/+archive/refs/heads/main/linux-x86.tar.gz" -o build-tools.tar.gz
-            tar -C build-tools -zxf build-tools.tar.gz
-            rm -rf build-tools.tar.gz &
-
-          elif [[ "${{ github.event.inputs.clang_version }}" == "clang18" ]]; then
-            echo "获取 LLVM-Clang18 工具链."
-            mkdir -p clang18
-            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/clang-r510928.zip -o clang.zip &&
-            unzip -q clang.zip -d clang18 &&
-            rm -rf clang.zip &
-
-            echo "获取构建工具."
-            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/build-tools.zip -o build-tools.zip &&
-            unzip -q build-tools.zip &&
-            rm -rf build-tools.zip &
-          fi
-          
-          wait
-          echo "所有源码及工具链初始化完成！"
-
-          if [[ -d rust/bin ]]; then
-            echo "Rust 工具链已存在: $(pwd)/rust/bin"
-            ./rust/bin/rustc --version || true
-            ./rust/bin/cargo --version || true
+          if [[ "$CLANG_VARIANT" == "clang19" ]]; then
+            (
+              echo "[rust] Rust 1.82.0"
+              mkdir -p rust
+              aria2c -s16 -x16 -k1M \
+                https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip \
+                -o rust.zip &&
+              unzip -q rust.zip -d rust && rm -f rust.zip
+            ) & pids+=($!)
           fi
 
-          echo "正在去除 ABI 保护及 dirty 后缀."
-          rm common/android/abi_gki_protected_exports_* || true
+          failed=0
+          for p in "${pids[@]}"; do
+            wait "$p" || { echo "::error::并行下载任务失败 (pid=$p)"; failed=1; }
+          done
+          [[ $failed -eq 0 ]] || { echo "::error::源码或工具链下载不完整, 中止"; exit 1; }
+
+          # ── 定位工具链 bin: 之后所有步骤只读 CLANG_BIN / BUILD_TOOLS_BIN,
+          #    不再各自重复一遍版本判断 (原先 install 与 build 两处各有一份 if/elif)。
+          find_clang_bin() {
+            local d
+            d="$(find "$1" \( -type f -o -type l \) -name clang \
+                 -path '*/bin/clang' -printf '%h\n' 2>/dev/null | head -1)"
+            [[ -n "$d" ]] || d="$(find "$1" \( -type f -o -type l \) -name clang \
+                 -printf '%h\n' 2>/dev/null | head -1)"
+            echo "$d"
+          }
+
+          case "$CLANG_VARIANT" in
+            zycromerz) CLANG_ROOT="$WORKDIR/kernel_workspace/zyc-clang" ;;
+            clang19)   CLANG_ROOT="$WORKDIR/kernel_workspace/clang19" ;;
+            clang18)   CLANG_ROOT="$WORKDIR/kernel_workspace/clang18" ;;
+          esac
+
+          CLANG_BIN="$(find_clang_bin "$CLANG_ROOT")"
+          if [[ -z "$CLANG_BIN" || ! -x "$CLANG_BIN/clang" ]]; then
+            echo "::error::未能在 $CLANG_ROOT 定位可用的 clang"
+            find "$CLANG_ROOT" -maxdepth 3 -name 'clang*' 2>/dev/null | head -20
+            exit 1
+          fi
+
+          if [[ -d "$WORKDIR/kernel_workspace/build-tools/linux-x86/bin" ]]; then
+            BUILD_TOOLS_BIN="$WORKDIR/kernel_workspace/build-tools/linux-x86/bin"
+          elif [[ -d "$WORKDIR/kernel_workspace/build-tools/bin" ]]; then
+            BUILD_TOOLS_BIN="$WORKDIR/kernel_workspace/build-tools/bin"
+          else
+            BUILD_TOOLS_BIN=""
+            echo "::warning::未找到 build-tools 目录, 仅依赖工具链自带 bin"
+          fi
+
+          echo "CLANG_BIN=$CLANG_BIN" >> $GITHUB_ENV
+          echo "BUILD_TOOLS_BIN=$BUILD_TOOLS_BIN" >> $GITHUB_ENV
+
+          echo "───────── 工具链自检 ─────────"
+          echo "变体       : $CLANG_VARIANT"
+          echo "Clang      : $("$CLANG_BIN/clang" --version | head -1)"
+          echo "ld.lld     : $("$CLANG_BIN/ld.lld" --version 2>/dev/null | head -1 || echo 缺失)"
+          echo "build-tools: ${BUILD_TOOLS_BIN:-<无>}"
+          [[ -x "$WORKDIR/kernel_workspace/rust/bin/rustc" ]] && \
+            echo "rustc      : $("$WORKDIR/kernel_workspace/rust/bin/rustc" --version)"
+          echo "pahole     : $(pahole --version 2>/dev/null | head -1 || echo 未安装)"
+          echo "──────────────────────────────"
+
+          echo "去除 ABI 保护及 dirty 后缀..."
+          rm -f common/android/abi_gki_protected_exports_*
           for f in common/scripts/setlocalversion; do
             sed -i 's/ -dirty//g' "$f"
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
@@ -415,10 +510,13 @@ jobs:
 
           cd ./common
 
-          cp ../kernel_patches/common/EnablePOLLY.patch ./
-
-          echo "📦 正在启用POLLY支持..."
-          git apply -p1 < EnablePOLLY.patch || true
+          if [[ "${{ github.event.inputs.polly_enable }}" == "true" ]]; then
+            cp ../kernel_patches/common/EnablePOLLY.patch ./
+            echo "📦 启用 POLLY 支持..."
+            git apply -p1 < EnablePOLLY.patch || true
+          else
+            echo "⏭️  已跳过 POLLY 补丁"
+          fi
 
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
@@ -464,10 +562,30 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_LLVM_POLLY=y" >> ./common/arch/arm64/configs/gki_defconfig
-          
+
+          if [[ "${{ github.event.inputs.polly_enable }}" == "true" ]]; then
+            echo "CONFIG_LLVM_POLLY=y" >> ./common/arch/arm64/configs/gki_defconfig
+          else
+            echo "# CONFIG_LLVM_POLLY is not set (由 polly_enable=false 关闭)" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+
           if [[ "${{ github.event.inputs.autofdo_enable }}" == "true" ]]; then
             echo "CONFIG_AUTOFDO_CLANG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+
+          # LLVM 18 不含 oryon-1 (2024-06-06 才合入 LLVM 19)。若此时仍要求 CPU 调优,
+          # clang 会在构建中途报 unknown CPU。此处提前拦截并给出明确原因。
+          if [[ "${{ github.event.inputs.cpu_opt }}" == "true" && "${{ github.event.inputs.clang_version }}" == "clang18" ]]; then
+            echo "::error::clang18 不支持 -mcpu=oryon-1, 但 cpu_opt=true。"
+            echo "::error::请将 clang_version 改为 zycromerz/clang19, 或将 cpu_opt 设为 false。"
+            exit 1
+          fi
+
+          # Polly 会重新并行化/向量化循环, 可能覆盖 mem_opt_patches 里手工调优过的
+          # 循环结构(mem_opt_prefetch / optimise_memcmp / int_sqrt 等)。
+          if [[ "${{ github.event.inputs.polly_enable }}" == "true" && "${{ github.event.inputs.mem_opt_patches }}" == "true" ]]; then
+            echo "::warning::polly_enable 与 mem_opt_patches 同时开启。"
+            echo "::warning::两者都做循环级变换, 建议二选一后用 llvm-objdump -d 对比 Image 指令数再定夺。"
           fi
             
       - name: 启用网络功能增强优化配置
@@ -621,18 +739,23 @@ jobs:
           fi
 
       - name: Apply Memory & Scheduler Optimization Patches
+        if: inputs.mem_opt_patches
         working-directory: kernel_workspace/common
         run: |
           echo "Applying WildKernels optimization patches..."
           PATCHES_DIR="../wildkernels_patches/common"
+          ok=0; skip=0; missing=0
 
           apply_patch() {
             local patch="$1"
             if [ -f "$PATCHES_DIR/$patch" ]; then
-              patch -p1 --forward < "$PATCHES_DIR/$patch" && \
-                echo "✅ $patch" || echo "⚠️ $patch (skipped/conflict)"
+              if patch -p1 --forward < "$PATCHES_DIR/$patch"; then
+                echo "✅ $patch"; ok=$((ok+1))
+              else
+                echo "⚠️ $patch (skipped/conflict)"; skip=$((skip+1))
+              fi
             else
-              echo "⚠️ $patch not found, skipping"
+              echo "⚠️ $patch not found, skipping"; missing=$((missing+1))
             fi
           }
 
@@ -662,7 +785,10 @@ jobs:
           apply_patch "silence_system_logspam.patch"
           apply_patch "use_unlikely_wrap_cpufreq.patch"
 
-          echo "✅ Optimization patches applied"
+          echo "✅ Optimization patches: applied=$ok skipped=$skip missing=$missing"
+          if [ "$skip" -gt 0 ] || [ "$missing" -gt 0 ]; then
+            echo "::warning::部分优化补丁未生效, 收益会低于预期。请检查上游补丁是否已合入 6.6.118。"
+          fi
 
       - name: Apply BBRv3
         if: inputs.bbr_enable != 'false'
@@ -730,15 +856,25 @@ jobs:
       - name: 准备 CPU 优化 (Oryon SM8750)
         if: inputs.cpu_opt
         run: |
+          set -euo pipefail
           echo "Setting up CPU tuning..."
           cd kernel_workspace
-          echo "CONFIG_ARM64_ERRATUM_2658417=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_ARCH_QCOM=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_HZ_300=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_PREEMPT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_NO_HZ_IDLE=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_RCU_LAZY_DEFAULT_OFF=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          DEFCONFIG=./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ARM64_ERRATUM_2658417=y" >> "$DEFCONFIG"
+          echo "CONFIG_ARCH_QCOM=y" >> "$DEFCONFIG"
+          echo "CONFIG_HZ_300=y" >> "$DEFCONFIG"
+          echo "CONFIG_PREEMPT=y" >> "$DEFCONFIG"
+          echo "CONFIG_NO_HZ_IDLE=y" >> "$DEFCONFIG"
+          echo "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" >> "$DEFCONFIG"
+          # defconfig 里写 `CONFIG_X=n` 不会关掉选项(olddefconfig 仍会取 Kconfig 默认值 y),
+          # 必须写成注释形式。要关闭就删掉已存在的行再追加 not-set。
+          sed -i '/^CONFIG_RCU_LAZY_DEFAULT_OFF=/d; /^# CONFIG_RCU_LAZY_DEFAULT_OFF is not set/d' "$DEFCONFIG"
+          echo "# CONFIG_RCU_LAZY_DEFAULT_OFF is not set" >> "$DEFCONFIG"
+
+          # 真正的 Oryon codegen 目标。此前该步骤只写 Kconfig, 没有任何 -mcpu,
+          # 导致"CPU 优化"名不副实。LLVM 19+ 才支持 oryon-1 (2024-06-06 合入)。
+          echo "EXTRA_CFLAGS=-mcpu=oryon-1" >> $GITHUB_ENV
+          echo "✅ EXTRA_CFLAGS=-mcpu=oryon-1 (LLVM 19+ 支持 oryon-1)"
 
       - name: 启用 LRNG v60
         if: inputs.lrng_enable
@@ -795,88 +931,82 @@ jobs:
 
       - name: 构建内核
         run: |
-          WORKDIR="$(pwd)"
-          export PATH="/usr/lib/ccache:$PATH"
-          
-          # 根据选择的工具链动态配置路径
-          if [[ "${{ github.event.inputs.clang_version }}" == "clang19" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
-            export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
+          set -uo pipefail
+          WORKDIR="$GITHUB_WORKSPACE"
+          LTO_TYPE="${{ github.event.inputs.lto_type }}"
 
-
-          elif [[ "${{ github.event.inputs.clang_version }}" == "aosp_clang" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/clang-aosp/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            export CLANG_DIR="$WORKDIR/kernel_workspace/clang-aosp/bin"
-
-          elif [[ "${{ github.event.inputs.clang_version }}" == "neutron" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/neutron-clang/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            export CLANG_DIR="$WORKDIR/kernel_workspace/neutron-clang/bin"
-
-          elif [[ "${{ github.event.inputs.clang_version }}" == "clang20" ]]; then
-            export PATH="$WORKDIR/kernel_workspace/clang20/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            export CLANG_DIR="$WORKDIR/kernel_workspace/clang20/bin"
-
-          else
-            export PATH="$WORKDIR/kernel_workspace/clang18/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-            export CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
-          fi
-
-          export LLVM=$CLANG_DIR/
+          # 工具链路径由安装步骤统一定位并写入 GITHUB_ENV, 这里不再重复判断版本分支。
+          CLANG_DIR="${CLANG_BIN:?CLANG_BIN 未设置, 请检查工具链安装步骤}"
+          export PATH="$CLANG_DIR:$BUILD_TOOLS_BIN:$WORKDIR/kernel_workspace/rust/bin:/usr/lib/ccache:$PATH"
+          export LLVM="$CLANG_DIR/"
           export RUST_LIB_SRC="$WORKDIR/kernel_workspace/rust/lib/rustlib/src/rust/library"
 
-          CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
-          LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
-
-          echo "编译器信息:"
-          echo "Clang版本: $CLANG_VERSION"
-          echo "LLD版本: $LLD_VERSION"
-
+          echo "───────── 构建环境 ─────────"
+          echo "Clang      : $("$CLANG_DIR/clang" --version | head -1)"
+          echo "ld.lld     : $("$CLANG_DIR/ld.lld" --version 2>/dev/null | head -1 || echo 缺失)"
+          echo "build-tools: ${BUILD_TOOLS_BIN:-<无>}"
+          echo "pahole     : $(pahole --version 2>/dev/null | head -1 || echo 未安装)"
           if command -v rustc >/dev/null 2>&1; then
-            echo "Rust版本: $(rustc --version)"
+            echo "rustc      : $(rustc --version)"
           else
-            echo "Rust版本: 未找到 rustc"
+            echo "rustc      : 未找到 (仅源码含 Rust 模块时需要)"
           fi
+          [[ -d "$RUST_LIB_SRC" ]] && echo "RUST_LIB_SRC: $RUST_LIB_SRC" \
+            || echo "::warning::RUST_LIB_SRC 不存在: $RUST_LIB_SRC"
 
-          if command -v cargo >/dev/null 2>&1; then
-            echo "Cargo版本: $(cargo --version)"
-          else
-            echo "Cargo版本: 未找到 cargo"
-          fi
+          # ── ccache 真正启用 ──────────────────────────────────────────
+          # 原先只是把 /usr/lib/ccache 加进 PATH, 而 make 走的是裸 clang
+          # (仅 LLVM=1 时 CC=clang), 因此 ccache 从未被调用, 缓存命中率恒为 0。
+          # 现在显式 CC="ccache clang" 并配置 sloppiness。
+          export CCACHE_DIR="${CCACHE_DIR:-$HOME/.ccache}"
+          mkdir -p "$CCACHE_DIR"
+          export CCACHE_BASEDIR="$WORKDIR"
+          export CCACHE_IS_KERNEL_COMPILING=true
+          ccache -M 10G >/dev/null
+          ccache -o compression=true >/dev/null
+          ccache -o compiler_check=none >/dev/null
+          ccache -o hash_dir=false >/dev/null
+          ccache -o depend_mode=false >/dev/null
+          ccache -o direct_mode=true >/dev/null
+          # time_macros + include_file_mtime/ctime: 否则 __TIME__/__DATE__ 每次构建都变,
+          # 引用时间宏的文件会全量重编, 缓存基本失效。
+          ccache -o sloppiness=file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros,locale >/dev/null
+          echo "ccache     : $(ccache --version | head -1)"
+          ccache -s | sed 's/^/            /'
 
-          if [[ -d "$RUST_LIB_SRC" ]]; then
-            echo "RUST_LIB_SRC=$RUST_LIB_SRC"
-          else
-            echo "警告: RUST_LIB_SRC 不存在: $RUST_LIB_SRC"
-          fi
-
-          pahole_version=$(pahole --version 2>/dev/null | head -n1)
-          [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
-          
-          
           cd kernel_workspace/common
-          
-          # 异步清理磁盘空间
+
+          # 异步清理磁盘空间 (给 ThinLTO 链接和 BTF 腾地方)
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
+          sudo rm -rf /usr/lib/jvm &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
-          
+          wait
+
           export KBUILD_BUILD_TIMESTAMP="${KERNEL_TIME}"
-          
-          # 核心编译参数区
-          # KCFLAGS 走 clang driver，可以使用 -mllvm
-           if [[ "${{ github.event.inputs.clang_version }}" == "clang19" || "${{ github.event.inputs.clang_version }}" == "clang20" ]]; then
-           ML_FLAGS="-mllvm -regalloc-enable-advisor=release -mllvm -enable-ml-inliner=release -mllvm -enable-ext-tsp-block-placement=1"
-          else
-           ML_FLAGS="-mllvm -enable-ext-tsp-block-placement=1"
-          fi
-          if [ "${{ github.event.inputs.clang_version }}" == "clang20" ]; then
-          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
-          echo "CONFIG_CFI_PERMISSIVE=y" >> ./arch/arm64/configs/gki_defconfig
-          else
-          OPT_KCFLAGS="-O3 -fno-strict-aliasing $ML_FLAGS -Wno-error"
-          fi
-          
+
+          # ── MLGO / 扩展 pass flag 逐个探测 ──────────────────────────
+          # 这些是 Google 下游 MLGO 实验 flag, 不同 LLVM 分支/快照支持情况不同。
+          # 直接硬传一旦不支持, clang 会以 "Unknown command line argument" 失败,
+          # 白跑一遍几十分钟的下载与 defconfig。这里先探测再决定是否传。
+          ML_FLAGS=""
+          probe_flag() {
+            if echo 'int probe(void){return 0;}' \
+                | "$CLANG_DIR/clang" -x c -c -o /dev/null -mllvm "$1" >/dev/null 2>&1; then
+              ML_FLAGS="$ML_FLAGS -mllvm $1"
+              echo "  ✅ $1"
+            else
+              echo "  ⏭️  当前工具链不支持, 已跳过: $1"
+            fi
+          }
+          echo "探测可选编译 flag:"
+          probe_flag "-enable-ext-tsp-block-placement=1"
+          probe_flag "-regalloc-enable-advisor=release"
+          probe_flag "-enable-ml-inliner=release"
+
+          OPT_KCFLAGS="-O3 -fno-strict-aliasing -Wno-error $ML_FLAGS"
+
           # KBUILD_LDFLAGS 直接传给 ld.lld，不能使用 -Wl,
           # 保留较稳的 LTO/链接优化，删除风险较高或兼容性较差的 LTO 内部 pass
           OPT_LDFLAGS=""
@@ -908,28 +1038,75 @@ jobs:
           fi
 
           echo "KBUILD_LDFLAGS += $OPT_LDFLAGS" >> Makefile
-          
-          echo "--- 开始生成内核配置 ---"
+
+          # ── ThinLTO 产物缓存 (仅 lto=thin 时有意义, 随 ccache 独立 restore/save) ──
+          LDCACHE_DIR="$WORKDIR/ldcache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}"
+          mkdir -p "$LDCACHE_DIR"
+          if [[ "$LTO_TYPE" == "thin" ]]; then
+            echo '#!/bin/bash' > "$PWD/ld-wrapper"
+            echo 'exec ld.lld "$@" --thinlto-cache-dir="'"$LDCACHE_DIR"'" --thinlto-jobs='"$(($(nproc --all) / 2))" >> "$PWD/ld-wrapper"
+            chmod +x "$PWD/ld-wrapper"
+            LD_WRAPPER="$PWD/ld-wrapper"
+            echo "ld-wrapper: $LD_WRAPPER (thinlto-cache-dir=$LDCACHE_DIR)"
+          else
+            LD_WRAPPER="ld.lld"
+          fi
+
+          echo "--- 生成内核配置 ---"
+          # 配置阶段不带 EXTRA_CFLAGS(否则 -mcpu 只影响后段, 前后不一致)。
+          # 用 KCFLAGS 而不是官方 build.sh: 官方检查在此树上会因自定义 config 挂掉,
+          # 所以 defconfig 后仍跑一次 olddefconfig 让追加的选项落盘。
           make -j$(nproc --all) \
             LLVM=1 LLVM_IAS=1 \
             ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            HOSTLD=ld.lld \
+            CC="ccache clang" LD="$LD_WRAPPER" HOSTLD="$LD_WRAPPER" \
             O=out \
             gki_defconfig
-          
-          echo "--- 开始编译内核镜像 ---"
+
+          echo "--- 编译内核镜像 ---"
           make -j$(nproc --all) \
             LLVM=1 LLVM_IAS=1 \
             ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            HOSTLD=ld.lld \
+            CC="ccache clang" LD="$LD_WRAPPER" HOSTLD="$LD_WRAPPER" \
             O=out \
             KCFLAGS="$OPT_KCFLAGS ${EXTRA_CFLAGS:-}" \
             $ABI_FLAGS \
             Image
-          
-          echo "内核编译完成！"        
+
+          echo "内核编译完成！"
+          echo "───────── 编译缓存统计 ─────────"
+          ccache -s
+          du -sh "$LDCACHE_DIR" 2>/dev/null || true
           df -h
           
+      - name: 保存 CCache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: 保存 LTO Cache
+        if: success() && inputs.lto_type == 'thin'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/ldcache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}
+          key: lto-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            lto-cache-${{ runner.os }}-${{ github.ref_name }}-
+
+      - name: 保存工具链缓存
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            kernel_workspace/zyc-clang
+            kernel_workspace/clang19
+            kernel_workspace/clang18
+            kernel_workspace/build-tools
+            kernel_workspace/rust
+          key: tc-${{ github.event.inputs.clang_version }}-${{ runner.os }}-${{ github.run_id }}
+
       - name: 克隆 AnyKernel3 并打包
         run: |
           cd kernel_workspace
@@ -1017,7 +1194,8 @@ jobs:
             - 内核版本号: ${{ env.FULL_VERSION }}
             - 编译时间: ${{ env.TIME_FORM }}
             - 机型：欧加真骁龙8Elite通用 6.6.89 内核（基于一加13国际版 6.6.89 版官方OKI源码）
-            - 编译器：${{ github.event.inputs.clang_version }} (LTO 等级：${{ github.event.inputs.lto_type }})
+            - 编译器：${{ github.event.inputs.clang_version }} (${{ github.event.inputs.cpu_opt == 'true' && '带 -mcpu=oryon-1' || '通用调优' }}, LTO 等级：${{ github.event.inputs.lto_type }})
+            - Polly / AutoFDO / 内存补丁：${{ github.event.inputs.polly_enable }} / ${{ github.event.inputs.autofdo_enable }} / ${{ github.event.inputs.mem_opt_patches }}
             - 特性：${{ env.KSU_TYPENAME }}
             - LZ4/LZ4KD支持：${{ github.event.inputs.lz4_enable }} / ${{ github.event.inputs.lz4kd_enable }}
             - SchedUtil/CPU 优化：${{ github.event.inputs.schedutil_opt }} / ${{ github.event.inputs.cpu_opt }}
