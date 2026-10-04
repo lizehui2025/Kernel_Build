@@ -1009,10 +1009,30 @@ jobs:
             echo "kernel/power/wakelock.c" >> "$EXCLUDE_TMP"
           fi
 
+          # tree-commit 带入的改动(patch 文件解析覆盖不到)：Fengchi 重写了调度核心
+          # (core.c 470行/fork.c 31行等)，以 hmbird 目录存在为准——有目录=改动在，
+          # 无目录=文件也是原装的，跳过即对。drm/msm/sysrq/init_task 那几个 hunk
+          # 经查全是注释/数据/冷路径(见提交说明)，不影响采样归因，不管。
+          # (计数器在此初始化：后面的 while 循环共用它)
+          APPLIED=0
+          if [ -d kernel/sched/hmbird ]; then
+            for rel in kernel/fork.c kernel/sched/build_policy.c kernel/sched/core.c kernel/sched/debug.c; do
+              [ -f "$rel" ] || continue
+              dir=$(dirname "$rel"); base=$(basename "$rel" .c)
+              line="AUTOFDO_PROFILE_${base}.o := n"
+              if ! grep -qF "$line" "$dir/Makefile"; then
+                echo "# AFDO scope: $rel 被 Fengchi tree-commit 改写" >> "$dir/Makefile"
+                echo "$line" >> "$dir/Makefile"
+                APPLIED=$((APPLIED+1)); echo "$rel (tree-commit)" >> "$EXCLUDE_TMP"
+              fi
+            done
+          else
+            echo "无 hmbird 目录，跳过 tree-commit 手动排除表"
+          fi
           sort -u "$EXCLUDE_TMP" -o "$EXCLUDE_TMP"
+
           TOTAL=$(wc -l < "$EXCLUDE_TMP")
           echo "待排除文件数: $TOTAL"
-          APPLIED=0
           while IFS= read -r rel; do
             [ -z "$rel" ] && continue
             [ -f "$rel" ] || { echo "  ⏭️ $rel 不在树中，跳过"; continue; }
