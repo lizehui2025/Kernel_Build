@@ -995,7 +995,10 @@ jobs:
           PATCH_FILES="$PATCH_FILES $(ls /tmp/*.patch 2>/dev/null || true)"
           PATCH_FILES="$PATCH_FILES $(ls ../wildkernels_patches/common/*.patch 2>/dev/null || true)"
           if [ -d /tmp/lrng_src ]; then
-            PATCH_FILES="$PATCH_FILES $(find /tmp/lrng_src -name '*.patch' 2>/dev/null || true)"
+            # 只收 LRNG 步骤实际用到的两个目录；该仓库还带全版本 backports
+            # (linux-4.x~6.12)，全 glob 会产生上百条 linux-X.Y 噪音且全 miss。
+            PATCH_FILES="$PATCH_FILES $(ls /tmp/lrng_src/backports/v60-6.6.119/*.patch 2>/dev/null || true)"
+            PATCH_FILES="$PATCH_FILES $(ls /tmp/lrng_src/kernel_patches/v6.18/*.patch 2>/dev/null || true)"
           fi
           # shellcheck disable=SC2086
           if [ -n "$(echo $PATCH_FILES | tr -d '[:space:]')" ]; then
@@ -1037,8 +1040,14 @@ jobs:
             [ -z "$rel" ] && continue
             [ -f "$rel" ] || { echo "  ⏭️ $rel 不在树中，跳过"; continue; }
             dir=$(dirname "$rel"); base=$(basename "$rel" .c)
+            # 向上找到真正编译它的 Makefile(如 lib/zstd/compress/*.c 归 lib/zstd/Makefile 管，
+            # 子目录自己没有 Makefile)。注意：只向上走，绝不横向；走到树根还没有就放弃，
+            # 此时保持 PGO 开启(宁可不少关——少关只是理论风险，多关才是确定的收益损失)。
             mk="$dir/Makefile"
-            [ -f "$mk" ] || { echo "  ⏭️ $rel 无 Makefile，跳过"; continue; }
+            while [ ! -f "$mk" ] && [ "$dir" != "." ] && [ "$dir" != "/" ]; do
+              dir=$(dirname "$dir"); mk="$dir/Makefile"
+            done
+            [ -f "$mk" ] || { echo "  ⏭️ $rel 向上找不到 Makefile，跳过"; continue; }
             line="AUTOFDO_PROFILE_${base}.o := n"
             if ! grep -qF "$line" "$mk"; then
               echo "# AFDO scope: $rel 与 profile 漂移，关闭其 PGO" >> "$mk"
@@ -1046,6 +1055,20 @@ jobs:
               APPLIED=$((APPLIED+1))
             fi
           done < "$EXCLUDE_TMP"
+          # 整个 drivers/ + sound/ 关闭 PGO：QCOM sync/vendor tree-commit 带入的改动
+          # (ufs/clk/interconnect/regulator 等 bringup 关键路径)没有 patch 文件可解析，
+          # 逐文件排除覆盖不到；且驱动多为 IO-bound，PGO 收益≈0，风险全消，一行解决。
+          # (export 逐层传递给子目录的独立 make 调用；以后某文件想 reopen，
+          #  在它自己的 Makefile 加 AUTOFDO_PROFILE_<base>.o := y 即可。)
+          for dm in drivers sound; do
+            if [ -f "$dm/Makefile" ] && ! grep -qF "export AUTOFDO_PROFILE := n" "$dm/Makefile"; then
+              echo "# AFDO scope: 关闭整个 $dm 树的 PGO（vendor 代码无 patch 可解析，IO-bound 收益≈0）" >> "$dm/Makefile"
+              echo "export AUTOFDO_PROFILE := n" >> "$dm/Makefile"
+              echo "✅ 已关闭 $dm/ 全树 AutoFDO"
+            else
+              echo "⏭️ $dm/ 已有关闭标记或无 Makefile，跳过"
+            fi
+          done
           echo "✅ 已关闭 $APPLIED 个文件的 AutoFDO (其余 profile 未覆盖/未改动代码保持原样)"
           echo "--- 排除清单 ---"
           cat "$EXCLUDE_TMP"
