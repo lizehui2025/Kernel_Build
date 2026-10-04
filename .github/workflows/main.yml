@@ -139,6 +139,12 @@ on:
         type: boolean
         default: true
 
+      autofdo_noinline_fix:
+        description: 'AutoFDO 的 noinline 化妆补丁 (只为 kallsyms 一致, 零性能价值; 卡开机二分时关掉它)'
+        required: true
+        type: boolean
+        default: true
+
       polly_enable:
         description: '是否启用 Polly 自动并行化 (与内存优化补丁存在冲突风险, 建议二选一)'
         required: true
@@ -929,6 +935,96 @@ jobs:
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
 
 
+      - name: 🩺 绑定 QCOM ramoops (修复 pstore 无日志)
+        working-directory: kernel_workspace/common
+        run: |
+          # 真机 DT 里只有 compatible="qcom,ramoops" 的节点 reserved-memory/ramoops-region
+          # (console 256KB + pmsg 2MB)，上游驱动只认 "ramoops"，永远 bind 不上，
+          # 故 /sys/fs/pstore 恒空、dmesg 无 ramoops 行。加一行匹配即可；
+          # 缺失的 record-size/ftrace-size 按上游默认走 0(对应后端关闭)，console+pmsg 正常工作。
+          # probe 失败也是 graceful(仅 pstore 继续为空)，无开不了机风险。
+          cat > /tmp/ramoops-qcom-compatible.patch << 'PATCHEOF'
+          --- a/fs/pstore/ram.c
+          +++ b/fs/pstore/ram.c
+          @@ -891,6 +891,7 @@
+
+           static const struct of_device_id dt_match[] = {
+           	{ .compatible = "ramoops" },
+          +	{ .compatible = "qcom,ramoops" },
+           	{}
+           };
+
+          PATCHEOF
+          if patch -p1 --forward < /tmp/ramoops-qcom-compatible.patch; then
+            echo "✅ ramoops 已绑定 qcom,ramoops；刷机后检查 dmesg 应有 ramoops 行，/sys/fs/pstore 应非空"
+          else
+            echo "::warning::ramoops 补丁未应用(可能上游已修)，跳过"
+          fi
+
+      - name: 🎯 限定 AutoFDO 作用域 (只优化 profile 未漂移的代码)
+        if: inputs.autofdo_enable
+        working-directory: kernel_workspace/common
+        run: |
+          # 原理: 无 sym-list 的 sample profile 下，profile 里没有的函数本来就是中性的，
+          # 真正危险的是“profile 里有、但源码被补丁改过”的函数(采样错位 → 内联/ICP 误判)。
+          # ACK 的 scripts/Makefile.lib 原生支持按文件关闭:
+          #   AUTOFDO_PROFILE_<base>.o := n   (写在该文件所在目录的 Makefile 末尾)
+          # 本步骤从“实际应用过的 patch”里解析出被改动的 .c，逐个关闭。
+          # 新增文件(--- /dev/null)没有 profile 数据，本来就中性，跳过以节省排除量。
+          set -uo pipefail
+          EXCLUDE_TMP=/tmp/afdo_excluded.txt
+          : > "$EXCLUDE_TMP"
+
+          collect_from_patches() {
+            # 只收“修改”(新老两侧都非 /dev/null)的 .c 文件。
+            # 新增文件没有 profile 数据、本来就是中性的，排除它只会污染清单；
+            # 删除文件(/dev/null 在 +++ 侧)无需处理。
+            awk '/^--- /{old=$2; sub(/^b\//,"",old); sub(/\t.*$/,"",old); next}
+                 /^\+\+\+ /{new=$2; sub(/^b\//,"",new); sub(/\t.*$/,"",new);
+                   if (old != "/dev/null" && new != "/dev/null" && new ~ /\.c$/) print new;
+                   old=""; next}' "$@" 2>/dev/null | sort -u || true
+          }
+
+          PATCH_FILES="$(ls ./*.patch 2>/dev/null || true)"
+          PATCH_FILES="$PATCH_FILES $(ls /tmp/*.patch 2>/dev/null || true)"
+          PATCH_FILES="$PATCH_FILES $(ls ../wildkernels_patches/common/*.patch 2>/dev/null || true)"
+          if [ -d /tmp/lrng_src ]; then
+            PATCH_FILES="$PATCH_FILES $(find /tmp/lrng_src -name '*.patch' 2>/dev/null || true)"
+          fi
+          # shellcheck disable=SC2086
+          if [ -n "$(echo $PATCH_FILES | tr -d '[:space:]')" ]; then
+            collect_from_patches $PATCH_FILES >> "$EXCLUDE_TMP" || true
+          else
+            echo "未发现已应用的 patch 文件，跳过解析"
+          fi
+
+          # 非 patch 形式的代码改动(heredoc 追加)：wakelock 步骤是无条件追加的
+          if grep -q 'palaziks: wakelock blocker list' kernel/power/wakelock.c 2>/dev/null; then
+            echo "kernel/power/wakelock.c" >> "$EXCLUDE_TMP"
+          fi
+
+          sort -u "$EXCLUDE_TMP" -o "$EXCLUDE_TMP"
+          TOTAL=$(wc -l < "$EXCLUDE_TMP")
+          echo "待排除文件数: $TOTAL"
+          APPLIED=0
+          while IFS= read -r rel; do
+            [ -z "$rel" ] && continue
+            [ -f "$rel" ] || { echo "  ⏭️ $rel 不在树中，跳过"; continue; }
+            dir=$(dirname "$rel"); base=$(basename "$rel" .c)
+            mk="$dir/Makefile"
+            [ -f "$mk" ] || { echo "  ⏭️ $rel 无 Makefile，跳过"; continue; }
+            line="AUTOFDO_PROFILE_${base}.o := n"
+            if ! grep -qF "$line" "$mk"; then
+              echo "# AFDO scope: $rel 与 profile 漂移，关闭其 PGO" >> "$mk"
+              echo "$line" >> "$mk"
+              APPLIED=$((APPLIED+1))
+            fi
+          done < "$EXCLUDE_TMP"
+          echo "✅ 已关闭 $APPLIED 个文件的 AutoFDO (其余 profile 未覆盖/未改动代码保持原样)"
+          echo "--- 排除清单 ---"
+          cat "$EXCLUDE_TMP"
+
+
       - name: 构建内核
         run: |
           set -uo pipefail
@@ -937,9 +1033,24 @@ jobs:
 
           # 工具链路径由安装步骤统一定位并写入 GITHUB_ENV, 这里不再重复判断版本分支。
           CLANG_DIR="${CLANG_BIN:?CLANG_BIN 未设置, 请检查工具链安装步骤}"
-          export PATH="$CLANG_DIR:$BUILD_TOOLS_BIN:$WORKDIR/kernel_workspace/rust/bin:/usr/lib/ccache:$PATH"
+          RUST_BIN="$WORKDIR/kernel_workspace/rust/bin"
+          if [[ -d "$RUST_BIN" ]]; then
+            export PATH="$CLANG_DIR:$BUILD_TOOLS_BIN:$RUST_BIN:/usr/lib/ccache:$PATH"
+          else
+            # zycromerz/clang18 变体不下载 Rust 包; gki_defconfig 默认也不开
+            # CONFIG_RUST, 所以这里直接跳过。不要把不存在的目录塞进 PATH。
+            export PATH="$CLANG_DIR:$BUILD_TOOLS_BIN:/usr/lib/ccache:$PATH"
+          fi
           export LLVM="$CLANG_DIR/"
-          export RUST_LIB_SRC="$WORKDIR/kernel_workspace/rust/lib/rustlib/src/rust/library"
+          # 只有预置 Rust 包实际存在时才导出 RUST_LIB_SRC。
+          # rust/Makefile 用的是 `?=` (不存在则回退到 `rustc --print sysroot`
+          # 下的 rust-src), 无条件导出一个不存在的路径反而会覆盖掉这个
+          # 好的回退, 把未来开了 CONFIG_RUST 的构建搞坏。
+          if [[ -d "$WORKDIR/kernel_workspace/rust/lib/rustlib/src/rust/library" ]]; then
+            export RUST_LIB_SRC="$WORKDIR/kernel_workspace/rust/lib/rustlib/src/rust/library"
+          else
+            unset RUST_LIB_SRC || true
+          fi
 
           echo "───────── 构建环境 ─────────"
           echo "Clang      : $("$CLANG_DIR/clang" --version | head -1)"
@@ -948,11 +1059,14 @@ jobs:
           echo "pahole     : $(pahole --version 2>/dev/null | head -1 || echo 未安装)"
           if command -v rustc >/dev/null 2>&1; then
             echo "rustc      : $(rustc --version)"
+          elif [[ -n "${RUST_LIB_SRC:-}" ]]; then
+            echo "rustc      : 预置包 ($RUST_LIB_SRC)"
           else
-            echo "rustc      : 未找到 (仅源码含 Rust 模块时需要)"
+            # gki_defconfig 默认未启用 CONFIG_RUST, 这是正常情况, 不是 warning。
+            echo "rustc      : 未提供 (gki_defconfig 默认 CONFIG_RUST=n, 不需要)"
           fi
-          [[ -d "$RUST_LIB_SRC" ]] && echo "RUST_LIB_SRC: $RUST_LIB_SRC" \
-            || echo "::warning::RUST_LIB_SRC 不存在: $RUST_LIB_SRC"
+          [[ -n "${RUST_LIB_SRC:-}" ]] && echo "RUST_LIB_SRC: $RUST_LIB_SRC" \
+            || echo "RUST_LIB_SRC: 未设置 (将回退到 rustc sysroot, CONFIG_RUST=n 时无影响)"
 
           # ── ccache 真正启用 ──────────────────────────────────────────
           # 原先只是把 /usr/lib/ccache 加进 PATH, 而 make 走的是裸 clang
@@ -1018,14 +1132,21 @@ jobs:
             OPT_KCFLAGS="$OPT_KCFLAGS -fprofile-sample-use=$AFDO_FILE"
             OPT_LDFLAGS="$OPT_LDFLAGS -mllvm -sample-profile-file=$AFDO_FILE"
 
-            # —— 修复 AutoFDO 内联导致的 kallsyms 符号丢失（保持与无 AutoFDO 构建的符号一致）——
-            echo "--- 修复 AutoFDO 符号差异 (noinline) ---"
-            grep -rlE -f "$WORKDIR/autofdo_defs.pat" --include='*.c' \
-              --exclude-dir=.git --exclude-dir=out . > /tmp/afdo_files.txt || true
-            echo "命中源文件: $(wc -l < /tmp/afdo_files.txt)"
-            if [ -s /tmp/afdo_files.txt ]; then
-              xargs -a /tmp/afdo_files.txt sed -E -i -f "$WORKDIR/autofdo_noinline.sed"
-              echo "✅ AutoFDO 符号差异修复完成"
+            # —— noinline hack 开关 ——
+            # 该 sed 唯一作用是 kallsyms 化妆(让 AFDO 版符号与非 AFDO 版一致)，
+            # 零性能价值；且它 strip __always_inline(arch 页表/KVM/scheduler
+            # helper 都在名单里)。怀疑对象 #2，默认保持开启以复现，二分时关掉。
+            if [[ "${{ github.event.inputs.autofdo_noinline_fix }}" == "true" ]]; then
+              echo "--- 修复 AutoFDO 符号差异 (noinline) ---"
+              grep -rlE -f "$WORKDIR/autofdo_defs.pat" --include='*.c' \
+                --exclude-dir=.git --exclude-dir=out . > /tmp/afdo_files.txt || true
+              echo "命中源文件: $(wc -l < /tmp/afdo_files.txt)"
+              if [ -s /tmp/afdo_files.txt ]; then
+                xargs -a /tmp/afdo_files.txt sed -E -i -f "$WORKDIR/autofdo_noinline.sed"
+                echo "✅ AutoFDO 符号差异修复完成"
+              fi
+            else
+              echo "⏭️ 已跳过 noinline hack (autofdo_noinline_fix=false)，kallsyms 可能与非 AFDO 版有差异，属预期"
             fi
           fi
           
