@@ -866,9 +866,8 @@ jobs:
           echo "CONFIG_PREEMPT=y" >> "$DEFCONFIG"
           echo "CONFIG_NO_HZ_IDLE=y" >> "$DEFCONFIG"
           echo "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" >> "$DEFCONFIG"
-          # defconfig 里写 `CONFIG_X=n` 不会关掉选项(olddefconfig 仍会取 Kconfig 默认值 y),
-          # 必须写成注释形式。要关闭就删掉已存在的行再追加 not-set。
-          sed -i '/^CONFIG_RCU_LAZY_DEFAULT_OFF=/d; /^# CONFIG_RCU_LAZY_DEFAULT_OFF is not set/d' "$DEFCONFIG"
+          # 关闭 RCU lazy：defconfig 里 `CONFIG_X=n` 不生效(olddefconfig 仍取 Kconfig 默认值)，
+          # 必须用注释形式写 "is not set"；重复出现时以最后一条为准，无需先删旧行。
           echo "# CONFIG_RCU_LAZY_DEFAULT_OFF is not set" >> "$DEFCONFIG"
 
           # 真正的 Oryon codegen 目标。此前该步骤只写 Kconfig, 没有任何 -mcpu,
@@ -880,8 +879,8 @@ jobs:
           # 再新的 clang 也会误报不支持, 探测结果是错的。
           if echo 'int oryon_probe(void){return 0;}' | "${CLANG_BIN:?CLANG_BIN 未设置, 请检查工具链安装步骤}/clang" \
               --target=aarch64-linux-gnu -mcpu=oryon-1 -x c - -c -o /dev/null >/dev/null 2>&1; then
-            echo "EXTRA_CFLAGS=-mcpu=oryon-1" >> $GITHUB_ENV
-            echo "✅ EXTRA_CFLAGS=-mcpu=oryon-1 (当前工具链支持 oryon-1)"
+            echo "ORYON_MCPU_OK=true" >> $GITHUB_ENV
+            echo "✅ 当前工具链支持 -mcpu=oryon-1（构建阶段仅在开启 CPU 优化时注入）"
           else
             echo "::error::当前工具链 ($CLANG_BIN) 不支持 -mcpu=oryon-1, 但 cpu_opt=true。"
             echo "::error::仅 ZyCromerZ 支持 oryon-1；请切换 clang_version=zycromerz，或关闭 cpu_opt。"
@@ -1172,6 +1171,17 @@ jobs:
               echo "⏭️ 已跳过 noinline hack (autofdo_noinline_fix=false)，kallsyms 可能与非 AFDO 版有差异，属预期"
             fi
           fi
+
+          # ── -mcpu=oryon-1：只在开启 CPU 优化时注入 ──
+          # 工具链支持性由「准备 CPU 优化」步骤实测探测，通过 ORYON_MCPU_OK 传递；
+          # 这里再按 cpu_opt 输入决定是否真的加进 KCFLAGS（关掉 cpu_opt 就不带 -mcpu）。
+          CPU_OPT_CFLAGS=""
+          if [[ "${{ github.event.inputs.cpu_opt }}" == "true" && "${ORYON_MCPU_OK:-false}" == "true" ]]; then
+            CPU_OPT_CFLAGS="-mcpu=oryon-1"
+            echo "CPU 优化 : 注入 $CPU_OPT_CFLAGS"
+          else
+            echo "CPU 优化 : 未注入 -mcpu (cpu_opt=${{ github.event.inputs.cpu_opt }}, 探测=${ORYON_MCPU_OK:-false})"
+          fi
           
           OPLUS_KMI_LIST="android/abi_gki_aarch64_oplus"
           if [ -f "$OPLUS_KMI_LIST" ]; then
@@ -1197,7 +1207,7 @@ jobs:
           fi
 
           echo "--- 生成内核配置 ---"
-          # 配置阶段不带 EXTRA_CFLAGS(否则 -mcpu 只影响后段, 前后不一致)。
+          # 配置阶段不带 -mcpu/EXTRA_CFLAGS(否则 -mcpu 只影响后段, 前后不一致)。
           # 用 KCFLAGS 而不是官方 build.sh: 官方检查在此树上会因自定义 config 挂掉,
           # 所以 defconfig 后仍跑一次 olddefconfig 让追加的选项落盘。
           make -j$(nproc --all) \
@@ -1213,7 +1223,7 @@ jobs:
             ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="ccache clang" LD="$LD_WRAPPER" HOSTLD="$LD_WRAPPER" \
             O=out \
-            KCFLAGS="$OPT_KCFLAGS ${EXTRA_CFLAGS:-}" \
+            KCFLAGS="$OPT_KCFLAGS ${CPU_OPT_CFLAGS} ${EXTRA_CFLAGS:-}" \
             $ABI_FLAGS \
             Image
 
