@@ -569,6 +569,20 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
 
+          # ── ftrace 函数追踪（排查卡开机 / KPM-hook 调试用）──
+          # ⚠️ FUNCTION_TRACER / FUNCTION_GRAPH_TRACER / FTRACE_SYSCALLS 都在
+          # kernel/trace/Kconfig 的 `if FTRACE` 块内，而本树 gki_defconfig 没有
+          # CONFIG_DEBUG_KERNEL(y)，menuconfig FTRACE 的 "default y if DEBUG_KERNEL"
+          # 不成立 → FTRACE 默认 n，子项全部不可见。必须先显式写 CONFIG_FTRACE=y，
+          # 否则后面几行会被 olddefconfig 静默丢弃。
+          # DYNAMIC_FTRACE(=y 默认) 让 tracer 运行时才生效，平时只剩 nop，开销可忽略；
+          # 依赖项 TRACING/GENERIC_TRACER/TRACEPOINTS 由 Kconfig select 自动带出。
+          echo "CONFIG_FTRACE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_DYNAMIC_FTRACE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_FUNCTION_TRACER=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_FUNCTION_GRAPH_TRACER=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_FTRACE_SYSCALLS=y" >> ./common/arch/arm64/configs/gki_defconfig
+
           if [[ "${{ github.event.inputs.polly_enable }}" == "true" ]]; then
             echo "CONFIG_LLVM_POLLY=y" >> ./common/arch/arm64/configs/gki_defconfig
           else
